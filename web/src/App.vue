@@ -7,11 +7,8 @@ import { RouterView } from 'vue-router'
 </template>
 
 <style>
-html,
-body,
-#app {
-  height: 100%;
-  margin: 0;
-  padding: 0;
+/* 确保 Element Plus 组件不被全局样式干扰 */
+.el-button + .el-button {
+  margin-left: 8px;
 }
 </style>
