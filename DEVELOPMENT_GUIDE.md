@@ -87,7 +87,7 @@ AIComicDrama/
 │       ├── main.ts
 │       ├── app.module.ts
 │       ├── config/             # 配置模块
-│       ├── common/             # 公共工具（守卫、拦截器、过滤器、WsGateway）
+│       ├── common/             # 公共工具（守卫、拦截器、过滤器、WsGateway、并发工具）
 │       ├── modules/            # 基础业务模块
 │       │   ├── auth/           # 认证
 │       │   ├── user/           # 用户
@@ -300,7 +300,8 @@ pnpm add @nestjs/bullmq bullmq ioredis
 pnpm add prisma @prisma/client
 pnpm add minio
 pnpm add class-validator class-transformer
-pnpm add bcryptjs uuid
+pnpm add bcryptjs uuid zod sharp
+pnpm add -D @types/sharp
 pnpm add -D @types/bcryptjs @types/passport-jwt @types/ws
 pnpm add @aicomic/shared --workspace
 
@@ -410,6 +411,7 @@ model Character {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
+  sheets          CharacterSheet[]
   images          CharacterImage[]
   shots           ShotCharacter[]
 }
@@ -456,12 +458,29 @@ model Episode {
 
 // ==================== Step2: 视觉资产 ====================
 
+// 角色设定图（9宫格 Character Sheet）
+model CharacterSheet {
+  id              String    @id @default(uuid())
+  characterId     String
+  character       Character @relation(fields: [characterId], references: [id])
+  imageUrl        String    // 完整设定图（9宫格）的存储路径
+  stateName       String?   // 对应的状态名（如"ghost"），null表示默认状态
+  gridSpec        String    @default("3x3")  // 网格规格（预留，当前固定3x3）
+  createdAt       DateTime  @default(now())
+
+  croppedImages   CharacterImage[]
+}
+
+// 用户从设定图中裁剪出的单张角色图
 model CharacterImage {
   id              String    @id @default(uuid())
   characterId     String
   character       Character @relation(fields: [characterId], references: [id])
-  imageType       String    // front=正面, side=侧面, expression_happy=喜, expression_sad=哀...
-  imageUrl        String    // MinIO/OSS文件路径
+  sheetId         String?   // 来源设定图ID（用户上传的图片此字段为null）
+  sheet           CharacterSheet? @relation(fields: [sheetId], references: [id])
+  imageType       String    // front=正面, side=侧面, expression_happy=喜, back=背面...
+  imageUrl        String    // 裁剪后的单张图片存储路径
+  cropRegion      Json?     // 裁剪区域 {x, y, width, height}（相对于原图的像素坐标）
   stateName       String?   // 对应的状态名（如"ghost"），null表示默认状态
   createdAt       DateTime  @default(now())
 }
@@ -718,14 +737,35 @@ export interface CharacterVO {
   visualNegative: string;
   states: Record<string, string> | null;
   episodeIds: number[];
-  images: CharacterImageVO[];
+  sheets: CharacterSheetVO[];    // 9宫格设定图
+  images: CharacterImageVO[];    // 从设定图裁剪出的子图
 }
 
-export interface CharacterImageVO {
+/** 角色设定图（9宫格完整图） */
+export interface CharacterSheetVO {
   id: string;
-  imageType: string;
   imageUrl: string;
   stateName: string | null;
+  gridSpec: string;              // "3x3"
+  croppedImages: CharacterImageVO[];  // 从此设定图裁剪出的子图
+}
+
+/** 从设定图裁剪出的单张角色图 */
+export interface CharacterImageVO {
+  id: string;
+  sheetId: string | null;
+  imageType: string;             // front/side/expression_happy...
+  imageUrl: string;
+  cropRegion: CropRegion | null;
+  stateName: string | null;
+}
+
+/** 裁剪区域（像素坐标，相对于设定图原图） */
+export interface CropRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 // packages/shared/src/types/scene.ts
@@ -798,16 +838,33 @@ export interface ShotVideoVO {
 
 /** 服务端 → 客户端 WebSocket 事件 */
 export type WsServerEvent =
+  // ===== 步骤级事件 =====
   | { event: 'step:start'; data: { step: string } }
   | { event: 'step:complete'; data: { step: string } }
   | { event: 'step:need_review'; data: { step: string } }
   | { event: 'step:failed'; data: { step: string; error: string } }
-  | { event: 'asset:character:image'; data: { characterId: string; imageType: string; imageUrl: string } }
+  // ===== 细粒度进度事件 =====
+  | { event: 'progress:detail'; data: {
+      step: string;           // 当前步骤
+      message: string;        // 人类可读的进度描述（如"正在生成角色定妆照 3/8"）
+      completed: number;      // 已完成数量
+      total: number;          // 总数量
+      entityType?: string;    // 实体类型（character/scene/episode/shot）
+      entityId?: string;      // 实体ID
+    } }
+  // ===== 资产生成事件 =====
+  | { event: 'asset:character:sheet'; data: { characterId: string; sheetUrl: string; stateName: string | null } }
   | { event: 'asset:scene:complete'; data: { sceneId: string } }
+  // ===== 分镜生成事件 =====
+  | { event: 'storyboard:episode:complete'; data: { episodeId: string; episodeNumber: number; shotCount: number } }
+  // ===== 锚点/视频生成事件 =====
   | { event: 'anchor:shot:complete'; data: { shotId: string; firstFrameUrl: string; lastFrameUrl: string } }
   | { event: 'video:shot:complete'; data: { shotId: string; episodeId: string; videoUrl: string } }
+  // ===== 组装/完成事件 =====
   | { event: 'assembly:episode:complete'; data: { episodeId: string; episodeNumber: number; videoUrl: string } }
-  | { event: 'project:complete'; data: Record<string, never> };
+  | { event: 'project:complete'; data: Record<string, never> }
+  // ===== 错误事件 =====
+  | { event: 'error'; data: { message: string } };
 
 /** 客户端 → 服务端 WebSocket 事件 */
 export type WsClientEvent =
@@ -931,19 +988,63 @@ export class LLMService {
   }
 
   /**
-   * 便捷方法：发送JSON格式请求，自动解析返回
+   * 便捷方法：发送JSON格式请求，自动解析 + Zod 校验 + 失败自动重试
+   *
+   * @param schema - Zod schema，用于校验 LLM 输出的 JSON 结构
+   * @param maxRetries - 最大重试次数（JSON 解析失败或 schema 校验失败时重试）
    */
   async chatJSON<T>(messages: LLMChatMessage[], options?: {
     temperature?: number;
     maxTokens?: number;
+    schema?: import('zod').ZodType<T>;
+    maxRetries?: number;
   }): Promise<{ data: T; usage: LLMResponse['usage'] }> {
-    const response = await this.chat(messages, {
-      ...options,
-      responseFormat: 'json',
-    });
+    const maxRetries = options?.maxRetries ?? 2;
+    let lastError: Error | null = null;
 
-    const data = JSON.parse(response.content) as T;
-    return { data, usage: response.usage };
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await this.chat(messages, {
+          ...options,
+          responseFormat: 'json',
+        });
+
+        // Step 1: JSON 解析
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(response.content);
+        } catch (parseErr) {
+          throw new Error(`LLM 返回的 JSON 无法解析: ${parseErr.message}\n原始内容: ${response.content.slice(0, 500)}`);
+        }
+
+        // Step 2: Zod schema 校验（如果提供了 schema）
+        if (options?.schema) {
+          const result = options.schema.safeParse(parsed);
+          if (!result.success) {
+            const issues = result.error.issues
+              .map(i => `  - ${i.path.join('.')}: ${i.message}`)
+              .join('\n');
+            throw new Error(`LLM 输出未通过 schema 校验:\n${issues}`);
+          }
+          return { data: result.data, usage: response.usage };
+        }
+
+        return { data: parsed as T, usage: response.usage };
+
+      } catch (error) {
+        lastError = error;
+        if (attempt < maxRetries) {
+          // 将错误信息追加到对话中，让 LLM 自我修正
+          messages = [
+            ...messages,
+            { role: 'assistant', content: '(上次输出有误)' },
+            { role: 'user', content: `你上次的输出有问题：${error.message}\n请严格按照要求重新输出正确的JSON。` },
+          ];
+        }
+      }
+    }
+
+    throw new Error(`LLM JSON 调用在 ${maxRetries + 1} 次尝试后仍然失败: ${lastError?.message}`);
   }
 }
 ```
@@ -1202,147 +1303,185 @@ export class StorageService {
 
 ---
 
-### 5.2 流水线编排器
+### 5.1.5 公共并发工具
+
+> AnchorService 和 VideoService 都需要"控制并发数量批量执行异步任务"，将此逻辑抽取为公共工具函数，避免代码重复。
+
+```typescript
+// server/src/common/concurrency.ts
+
+/**
+ * 控制并发的批量执行器
+ *
+ * @param taskFactories - 工厂函数数组（() => Promise），而非 Promise 数组。
+ *   如果直接传入 Promise 数组，所有任务会在 push 时立即启动，并发控制失效。
+ * @param concurrency - 最大并发数
+ * @param onProgress - 可选的进度回调，每完成一个任务调用一次
+ */
+export async function executeBatch(
+  taskFactories: Array<() => Promise<void>>,
+  concurrency: number,
+  onProgress?: (completed: number, total: number) => void,
+): Promise<void> {
+  const total = taskFactories.length;
+  let completed = 0;
+  const executing = new Set<Promise<void>>();
+
+  for (const factory of taskFactories) {
+    const task = factory();
+    const wrapped = task.then(
+      () => {
+        executing.delete(wrapped);
+        completed++;
+        onProgress?.(completed, total);
+      },
+      () => {
+        executing.delete(wrapped);
+        completed++;
+        onProgress?.(completed, total);
+      },
+    );
+    executing.add(wrapped);
+
+    if (executing.size >= concurrency) {
+      await Promise.race(executing);
+    }
+  }
+
+  await Promise.all(executing);
+}
+```
+
+---
+
+### 5.2 流水线编排器（BullMQ 队列驱动）
+
+> **设计说明**：原方案技术栈中列了 BullMQ，但流水线实际是同步 await 串行执行的。
+> AI 任务（图片生成、视频生成）动辄几分钟，长时间占用 HTTP 请求线程会导致超时和资源浪费。
+>
+> 改进方案：
+> - API 接口只负责**投递任务到 BullMQ 队列**，立即返回 202
+> - `PipelineProcessor` 作为队列消费者，在后台执行实际逻辑
+> - 每个步骤完成后，自动将下一步骤投递到队列（链式调度）
+> - 需要人工审核的步骤（asset），完成后不自动投递，等用户确认后再手动投递下一步
+
+```typescript
+// server/src/pipeline/pipeline.module.ts
+
+import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
+import { PipelineOrchestrator } from './pipeline.orchestrator';
+import { PipelineProcessor } from './pipeline.processor';
+
+@Module({
+  imports: [
+    BullModule.registerQueue({
+      name: 'pipeline',
+      defaultJobOptions: {
+        attempts: 3,                  // 失败自动重试3次
+        backoff: { type: 'exponential', delay: 5000 },  // 指数退避
+        removeOnComplete: 100,        // 保留最近100条成功记录
+        removeOnFail: 200,            // 保留最近200条失败记录
+      },
+    }),
+  ],
+  providers: [PipelineOrchestrator, PipelineProcessor],
+  exports: [PipelineOrchestrator],
+})
+export class PipelineModule {}
+```
 
 ```typescript
 // server/src/pipeline/pipeline.orchestrator.ts
+// 编排器：只负责投递任务到队列，不直接执行 AI 调用
 
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { PrismaService } from '../common/prisma.service';
-import { AnalysisService } from '../steps/analysis/analysis.service';
-import { AssetService } from '../steps/asset/asset.service';
-import { StoryboardService } from '../steps/storyboard/storyboard.service';
-import { AnchorService } from '../steps/anchor/anchor.service';
-import { VideoService } from '../steps/video/video.service';
-import { AssemblyService } from '../steps/assembly/assembly.service';
 import { WsGateway } from '../common/ws.gateway';
-import { PipelineStep, PIPELINE_STEP_ORDER, PIPELINE_REVIEW_STEPS } from '@aicomic/shared';
+import { PipelineStep, PIPELINE_STEP_ORDER } from '@aicomic/shared';
+
+export interface PipelineJobData {
+  projectId: string;
+  step: PipelineStep;
+}
 
 @Injectable()
 export class PipelineOrchestrator {
   private readonly logger = new Logger(PipelineOrchestrator.name);
 
   constructor(
+    @InjectQueue('pipeline') private pipelineQueue: Queue<PipelineJobData>,
     private prisma: PrismaService,
-    private analysisService: AnalysisService,
-    private assetService: AssetService,
-    private storyboardService: StoryboardService,
-    private anchorService: AnchorService,
-    private videoService: VideoService,
-    private assemblyService: AssemblyService,
     private ws: WsGateway,
   ) {}
 
   /**
-   * 从指定步骤开始执行流水线
+   * 从指定步骤开始执行流水线（投递到队列，立即返回）
    */
-  async executeFrom(projectId: string, fromStep: PipelineStep) {
-    const startIndex = PIPELINE_STEP_ORDER.indexOf(fromStep);
+  async startFrom(projectId: string, fromStep: PipelineStep): Promise<void> {
+    await this.pipelineQueue.add('execute-step', {
+      projectId,
+      step: fromStep,
+    }, {
+      jobId: `${projectId}-${fromStep}`,  // 防止重复投递
+    });
 
-    for (let i = startIndex; i < PIPELINE_STEP_ORDER.length; i++) {
-      const step = PIPELINE_STEP_ORDER[i];
+    this.logger.log(`Project ${projectId} - 已投递任务: ${fromStep}`);
+  }
 
-      // 更新项目状态
+  /**
+   * 投递下一步骤（由 Processor 在当前步骤完成后调用）
+   */
+  async scheduleNextStep(projectId: string, currentStep: PipelineStep): Promise<void> {
+    const currentIndex = PIPELINE_STEP_ORDER.indexOf(currentStep);
+    const nextIndex = currentIndex + 1;
+
+    if (nextIndex >= PIPELINE_STEP_ORDER.length) {
+      // 全部完成
       await this.prisma.project.update({
         where: { id: projectId },
-        data: { currentStep: step, status: `${step}_processing` },
+        data: { status: 'completed' },
       });
-
-      // 通知前端
-      this.ws.emitToProject(projectId, 'step:start', { step });
-
-      try {
-        await this.executeStep(projectId, step);
-
-        // 通知前端步骤完成
-        this.ws.emitToProject(projectId, 'step:complete', { step });
-
-        this.logger.log(`Project ${projectId} - Step ${step} completed`);
-
-        // 需要用户确认的步骤，暂停流水线
-        if (PIPELINE_REVIEW_STEPS.includes(step)) {
-          await this.prisma.project.update({
-            where: { id: projectId },
-            data: { status: 'asset_review' },
-          });
-          this.ws.emitToProject(projectId, 'step:need_review', { step });
-          return; // 暂停，等用户确认后手动调用 continueAfterAssetReview()
-        }
-
-      } catch (error) {
-        this.logger.error(`Project ${projectId} - Step ${step} failed: ${error.message}`);
-
-        await this.prisma.project.update({
-          where: { id: projectId },
-          data: { status: 'failed', currentStep: step },
-        });
-
-        this.ws.emitToProject(projectId, 'step:failed', {
-          step,
-          error: error.message,
-        });
-
-        throw error;
-      }
+      this.ws.emitToProject(projectId, 'project:complete', {});
+      return;
     }
 
-    // 全部完成
-    await this.prisma.project.update({
-      where: { id: projectId },
-      data: { status: 'completed' },
-    });
-    this.ws.emitToProject(projectId, 'project:complete', {});
+    const nextStep = PIPELINE_STEP_ORDER[nextIndex];
+    await this.startFrom(projectId, nextStep);
   }
 
   /**
    * 用户确认资产后，继续执行后续步骤
    */
-  async continueAfterAssetReview(projectId: string) {
-    await this.executeFrom(projectId, 'storyboard');
+  async continueAfterAssetReview(projectId: string): Promise<void> {
+    await this.startFrom(projectId, 'storyboard');
   }
 
   /**
    * 从某个步骤重跑
    */
-  async restartFrom(projectId: string, fromStep: PipelineStep) {
-    // 清除该步骤及之后的所有产物
+  async restartFrom(projectId: string, fromStep: PipelineStep): Promise<void> {
     await this.clearOutputsFrom(projectId, fromStep);
-    // 重新执行
-    await this.executeFrom(projectId, fromStep);
+    await this.startFrom(projectId, fromStep);
   }
 
   /**
-   * 重新生成单个镜头（从指定子步骤开始）
+   * 重新生成单个镜头（投递专用任务）
    */
-  async retrySingleShot(shotId: string, fromStep: 'anchor' | 'video') {
-    if (fromStep === 'anchor') {
-      await this.anchorService.generateForShot(shotId);
-      await this.videoService.generateForShot(shotId);
-    } else {
-      await this.videoService.generateForShot(shotId);
-    }
+  async retrySingleShot(shotId: string, fromStep: 'anchor' | 'video'): Promise<void> {
+    await this.pipelineQueue.add('retry-shot', {
+      shotId,
+      fromStep,
+    } as any, {
+      jobId: `shot-${shotId}-${fromStep}-${Date.now()}`,
+    });
   }
 
   // ========== 私有方法 ==========
 
-  private async executeStep(projectId: string, step: PipelineStep) {
-    switch (step) {
-      case 'analysis':
-        return this.analysisService.execute(projectId);
-      case 'asset':
-        return this.assetService.execute(projectId);
-      case 'storyboard':
-        return this.storyboardService.execute(projectId);
-      case 'anchor':
-        return this.anchorService.execute(projectId);
-      case 'video':
-        return this.videoService.execute(projectId);
-      case 'assembly':
-        return this.assemblyService.execute(projectId);
-    }
-  }
-
-  private async clearOutputsFrom(projectId: string, fromStep: PipelineStep) {
+  async clearOutputsFrom(projectId: string, fromStep: PipelineStep): Promise<void> {
     const startIndex = PIPELINE_STEP_ORDER.indexOf(fromStep);
     const stepsToClear = PIPELINE_STEP_ORDER.slice(startIndex);
 
@@ -1355,6 +1494,9 @@ export class PipelineOrchestrator {
           break;
         case 'asset':
           await this.prisma.characterImage.deleteMany({
+            where: { character: { projectId } },
+          });
+          await this.prisma.characterSheet.deleteMany({
             where: { character: { projectId } },
           });
           await this.prisma.sceneImage.deleteMany({
@@ -1387,9 +1529,195 @@ export class PipelineOrchestrator {
 }
 ```
 
+```typescript
+// server/src/pipeline/pipeline.processor.ts
+// 队列消费者：实际执行 AI 任务的 Worker
+
+import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { Logger } from '@nestjs/common';
+import { Job } from 'bullmq';
+import { PrismaService } from '../common/prisma.service';
+import { AnalysisService } from '../steps/analysis/analysis.service';
+import { AssetService } from '../steps/asset/asset.service';
+import { StoryboardService } from '../steps/storyboard/storyboard.service';
+import { AnchorService } from '../steps/anchor/anchor.service';
+import { VideoService } from '../steps/video/video.service';
+import { AssemblyService } from '../steps/assembly/assembly.service';
+import { WsGateway } from '../common/ws.gateway';
+import { PipelineOrchestrator, PipelineJobData } from './pipeline.orchestrator';
+import { PipelineStep, PIPELINE_REVIEW_STEPS } from '@aicomic/shared';
+
+@Processor('pipeline', {
+  concurrency: 2,  // 同时处理2个项目的任务
+})
+export class PipelineProcessor extends WorkerHost {
+  private readonly logger = new Logger(PipelineProcessor.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private orchestrator: PipelineOrchestrator,
+    private analysisService: AnalysisService,
+    private assetService: AssetService,
+    private storyboardService: StoryboardService,
+    private anchorService: AnchorService,
+    private videoService: VideoService,
+    private assemblyService: AssemblyService,
+    private ws: WsGateway,
+  ) {
+    super();
+  }
+
+  async process(job: Job<PipelineJobData>): Promise<void> {
+    const { projectId, step } = job.data;
+
+    this.logger.log(`Processing: Project ${projectId} - Step ${step} (attempt ${job.attemptsMade + 1})`);
+
+    // 更新项目状态
+    await this.prisma.project.update({
+      where: { id: projectId },
+      data: { currentStep: step, status: `${step}_processing` },
+    });
+    this.ws.emitToProject(projectId, 'step:start', { step });
+
+    try {
+      // ========== 幂等性保障：执行前清理该步骤已有的输出数据 ==========
+      // BullMQ 重试时，上一次可能已经写入了部分数据（如生成了一半的图片）。
+      // 清理后重新执行，确保结果完整且不重复。
+      await this.clearStepOutput(projectId, step);
+
+      // 执行实际的 AI 任务
+      await this.executeStep(projectId, step);
+
+      // 通知前端步骤完成
+      this.ws.emitToProject(projectId, 'step:complete', { step });
+      this.logger.log(`Completed: Project ${projectId} - Step ${step}`);
+
+      // 需要用户确认的步骤，暂停流水线
+      if (PIPELINE_REVIEW_STEPS.includes(step)) {
+        await this.prisma.project.update({
+          where: { id: projectId },
+          data: { status: 'asset_review' },
+        });
+        this.ws.emitToProject(projectId, 'step:need_review', { step });
+        return; // 不自动投递下一步，等用户确认
+      }
+
+      // 自动投递下一步骤
+      await this.orchestrator.scheduleNextStep(projectId, step);
+
+    } catch (error) {
+      this.logger.error(`Failed: Project ${projectId} - Step ${step}: ${error.message}`);
+
+      // BullMQ 会根据 attempts 配置自动重试
+      // 只有在最后一次重试也失败时，才标记项目为 failed
+      if (job.attemptsMade + 1 >= (job.opts?.attempts ?? 3)) {
+        await this.prisma.project.update({
+          where: { id: projectId },
+          data: { status: 'failed', currentStep: step },
+        });
+        this.ws.emitToProject(projectId, 'step:failed', {
+          step,
+          error: error.message,
+        });
+      }
+
+      throw error; // 抛出让 BullMQ 处理重试逻辑
+    }
+  }
+
+  private async executeStep(projectId: string, step: PipelineStep): Promise<void> {
+    switch (step) {
+      case 'analysis':
+        return this.analysisService.execute(projectId);
+      case 'asset':
+        return this.assetService.execute(projectId);
+      case 'storyboard':
+        return this.storyboardService.execute(projectId);
+      case 'anchor':
+        return this.anchorService.execute(projectId);
+      case 'video':
+        return this.videoService.execute(projectId);
+      case 'assembly':
+        return this.assemblyService.execute(projectId);
+    }
+  }
+
+  /**
+   * 幂等性保障：清理指定步骤已有的输出数据
+   *
+   * 场景：BullMQ 自动重试时，上一次执行可能已写入部分数据（如生成了3张图片后失败）。
+   * 重试前先清理，确保重新执行后数据完整且不重复。
+   *
+   * 注意：只清理当前步骤的输出，不影响前置步骤的数据。
+   */
+  private async clearStepOutput(projectId: string, step: PipelineStep): Promise<void> {
+    this.logger.log(`Clearing existing output for step: ${step}`);
+
+    switch (step) {
+      case 'analysis':
+        // 清理角色、场景、分集（级联清理关联的 shots 等由 onDelete: Cascade 处理）
+        await this.prisma.episode.deleteMany({ where: { projectId } });
+        await this.prisma.character.deleteMany({ where: { projectId } });
+        await this.prisma.scene.deleteMany({ where: { projectId } });
+        break;
+
+      case 'asset':
+        // 清理角色裁剪图、设定图和场景锚图
+        await this.prisma.characterImage.deleteMany({
+          where: { character: { projectId } },
+        });
+        await this.prisma.characterSheet.deleteMany({
+          where: { character: { projectId } },
+        });
+        await this.prisma.sceneImage.deleteMany({
+          where: { scene: { projectId } },
+        });
+        break;
+
+      case 'storyboard':
+        // 清理分镜（镜头数据 + 关联的角色引用）
+        await this.prisma.shotCharacter.deleteMany({
+          where: { shot: { episode: { projectId } } },
+        });
+        await this.prisma.shot.deleteMany({
+          where: { episode: { projectId } },
+        });
+        break;
+
+      case 'anchor':
+        // 清理锚点图片（首帧/尾帧）
+        await this.prisma.shotImage.deleteMany({
+          where: { shot: { episode: { projectId } } },
+        });
+        break;
+
+      case 'video':
+        // 清理生成的视频片段
+        await this.prisma.shotVideo.deleteMany({
+          where: { shot: { episode: { projectId } } },
+        });
+        break;
+
+      case 'assembly':
+        // 清理成片
+        await this.prisma.finalVideo.deleteMany({
+          where: { episode: { projectId } },
+        });
+        break;
+    }
+  }
+}
+```
+
 ---
 
-### 5.3 Step1：全文分析 + 智能分集
+### 5.3 Step1：全文分析 + 智能分集（两阶段 LLM 调用）
+
+> **设计说明**：将原来的单次 LLM 调用拆分为两个阶段。30000 字小说 + 复杂 JSON 输出在单次调用中容易超出 token 限制或导致输出截断。
+> 拆分后每次调用的 prompt 更短、输出结构更简单，JSON 可靠性大幅提升。
+>
+> - **Phase 1**：提取角色 + 场景（不含分集，输出 token 较少）
+> - **Phase 2**：基于已确定的角色/场景名称进行分集规划（角色/场景名作为上下文传入，保证引用一致）
 
 ```typescript
 // server/src/steps/analysis/analysis.service.ts
@@ -1399,15 +1727,14 @@ import { PrismaService } from '../../common/prisma.service';
 import { LLMService } from '../../providers/llm/llm.service';
 import { WsGateway } from '../../common/ws.gateway';
 
-// Step1 LLM输出的数据结构
-interface AnalysisResult {
+// Phase 1 输出：角色 + 场景
+interface ExtractResult {
   characters: {
     name: string;
     description: string;
     visual_prompt: string;
     visual_negative: string;
     states?: Record<string, string>;
-    appears_in_episodes: number[];
   }[];
   scenes: {
     name: string;
@@ -1415,13 +1742,18 @@ interface AnalysisResult {
     visual_prompt: string;
     visual_negative: string;
     variants?: Record<string, string>;
-    appears_in_episodes: number[];
   }[];
+}
+
+// Phase 2 输出：分集规划
+// 不再要求 LLM 复制完整原文，改为输出起止标记（原文前20字+后20字），由代码截取
+interface EpisodePlanResult {
   episodes: {
     episode_number: number;
     title: string;
     summary: string;
-    original_text: string;
+    text_start_marker: string;   // 该集对应原文的起始标记（原文中前20个字）
+    text_end_marker: string;     // 该集对应原文的结束标记（原文中后20个字）
     character_names: string[];
     scene_names: string[];
     emotion_curve: string;
@@ -1449,24 +1781,23 @@ export class AnalysisService {
       throw new Error('小说内容不存在');
     }
 
-    // 2. 调用LLM进行全文分析
-    const systemPrompt = this.buildSystemPrompt();
-    const userPrompt = this.buildUserPrompt(novel.originalText);
-
     this.logger.log(`Project ${projectId} - 开始全文分析，字数：${novel.charCount}`);
 
-    const { data: result } = await this.llm.chatJSON<AnalysisResult>([
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
+    // ========== Phase 1：提取角色 + 场景 ==========
+    this.logger.log(`Project ${projectId} - Phase 1: 提取角色和场景`);
+
+    const { data: extractResult } = await this.llm.chatJSON<ExtractResult>([
+      { role: 'system', content: this.buildExtractSystemPrompt() },
+      { role: 'user', content: `请分析以下短篇小说，提取所有角色和场景：\n\n${novel.originalText}` },
     ], {
       temperature: 0.7,
-      maxTokens: 16000,
+      maxTokens: 8000,
     });
 
-    // 3. 存储角色
+    // 存储角色
     const characterMap = new Map<string, string>(); // name → id
-    for (let i = 0; i < result.characters.length; i++) {
-      const char = result.characters[i];
+    for (let i = 0; i < extractResult.characters.length; i++) {
+      const char = extractResult.characters[i];
       const created = await this.prisma.character.create({
         data: {
           projectId,
@@ -1475,17 +1806,17 @@ export class AnalysisService {
           visualPrompt: char.visual_prompt,
           visualNegative: char.visual_negative,
           states: char.states || null,
-          episodeIds: char.appears_in_episodes,
+          episodeIds: [],  // 分集后回填
           sortOrder: i,
         },
       });
       characterMap.set(char.name, created.id);
     }
 
-    // 4. 存储场景
+    // 存储场景
     const sceneMap = new Map<string, string>(); // name → id
-    for (let i = 0; i < result.scenes.length; i++) {
-      const scene = result.scenes[i];
+    for (let i = 0; i < extractResult.scenes.length; i++) {
+      const scene = extractResult.scenes[i];
       const created = await this.prisma.scene.create({
         data: {
           projectId,
@@ -1494,21 +1825,50 @@ export class AnalysisService {
           visualPrompt: scene.visual_prompt,
           visualNegative: scene.visual_negative,
           variants: scene.variants || null,
-          episodeIds: scene.appears_in_episodes,
+          episodeIds: [],  // 分集后回填
           sortOrder: i,
         },
       });
       sceneMap.set(scene.name, created.id);
     }
 
-    // 5. 存储分集
-    for (const ep of result.episodes) {
+    this.logger.log(
+      `Project ${projectId} - Phase 1 完成：${extractResult.characters.length}个角色，${extractResult.scenes.length}个场景`
+    );
+
+    // ========== Phase 2：分集规划 ==========
+    this.logger.log(`Project ${projectId} - Phase 2: 分集规划`);
+
+    // 将已确定的角色/场景名称列表传入，确保分集时引用一致
+    const characterNames = extractResult.characters.map(c => c.name);
+    const sceneNames = extractResult.scenes.map(s => s.name);
+
+    const { data: episodeResult } = await this.llm.chatJSON<EpisodePlanResult>([
+      { role: 'system', content: this.buildEpisodeSystemPrompt() },
+      { role: 'user', content: this.buildEpisodeUserPrompt(novel.originalText, characterNames, sceneNames) },
+    ], {
+      temperature: 0.7,
+      maxTokens: 8000,  // 不再输出完整原文，token 用量大幅降低
+    });
+
+    // 存储分集，并回填角色/场景的 episodeIds
+    const characterEpisodes = new Map<string, number[]>(); // characterId → episodeNumbers
+    const sceneEpisodes = new Map<string, number[]>();      // sceneId → episodeNumbers
+
+    for (const ep of episodeResult.episodes) {
+      // 根据起止标记从原文中截取对应段落
+      const originalText = this.extractOriginalText(
+        novel.originalText,
+        ep.text_start_marker,
+        ep.text_end_marker,
+      );
+
       const characterIds = ep.character_names
         .map(name => characterMap.get(name))
-        .filter(Boolean);
+        .filter(Boolean) as string[];
       const sceneIds = ep.scene_names
         .map(name => sceneMap.get(name))
-        .filter(Boolean);
+        .filter(Boolean) as string[];
 
       await this.prisma.episode.create({
         data: {
@@ -1516,7 +1876,7 @@ export class AnalysisService {
           episodeNumber: ep.episode_number,
           title: ep.title,
           summary: ep.summary,
-          originalText: ep.original_text,
+          originalText,
           characterIds,
           sceneIds,
           emotionCurve: ep.emotion_curve,
@@ -1524,27 +1884,47 @@ export class AnalysisService {
           sortOrder: ep.episode_number,
         },
       });
+
+      // 收集每个角色/场景出现在哪些集
+      for (const cId of characterIds) {
+        const arr = characterEpisodes.get(cId) || [];
+        arr.push(ep.episode_number);
+        characterEpisodes.set(cId, arr);
+      }
+      for (const sId of sceneIds) {
+        const arr = sceneEpisodes.get(sId) || [];
+        arr.push(ep.episode_number);
+        sceneEpisodes.set(sId, arr);
+      }
+    }
+
+    // 回填角色和场景的 episodeIds
+    for (const [characterId, epNums] of characterEpisodes) {
+      await this.prisma.character.update({
+        where: { id: characterId },
+        data: { episodeIds: epNums },
+      });
+    }
+    for (const [sceneId, epNums] of sceneEpisodes) {
+      await this.prisma.scene.update({
+        where: { id: sceneId },
+        data: { episodeIds: epNums },
+      });
     }
 
     this.logger.log(
-      `Project ${projectId} - 分析完成：` +
-      `${result.characters.length}个角色，` +
-      `${result.scenes.length}个场景，` +
-      `${result.episodes.length}集`
+      `Project ${projectId} - Phase 2 完成：${episodeResult.episodes.length}集`
     );
   }
 
-  // ==================== 提示词模板 ====================
+  // ==================== Phase 1 提示词：角色 + 场景提取 ====================
 
-  private buildSystemPrompt(): string {
-    return `你是一位专业的3D动漫短剧策划师和编剧。你的任务是分析一篇短篇小说，完成三项工作：
-
-1. **角色提取**：识别所有有台词或重要戏份的角色
-2. **场景提取**：识别所有出现的场景/地点
-3. **分集规划**：将故事拆分为多集短剧
+  private buildExtractSystemPrompt(): string {
+    return `你是一位专业的3D动漫短剧策划师。你的任务是分析一篇短篇小说，提取所有角色和场景。
 
 ## 角色提取要求
 
+- 识别所有有台词或重要戏份的角色
 - 为每个角色生成完整的英文视觉描述（visual_prompt），用于AI图像生成
 - 视觉描述必须包含：性别、年龄、体型、发型发色、面部特征、服装、整体风格
 - 所有视觉描述统一使用以下基础风格前缀：3d anime style, cel-shading, cinematic lighting
@@ -1554,20 +1934,12 @@ export class AnalysisService {
 
 ## 场景提取要求
 
+- 识别所有出现的场景/地点
 - 为每个场景生成完整的英文视觉描述（visual_prompt）
 - 必须包含：场景类型（室内/室外）、空间布局、关键物件、光照条件、整体氛围
 - 同样使用 3d anime style 前缀
 - 如果同一场景在不同时段/天气下出现，在variants字段中提供变体描述
 - 变体只改变光照和氛围，不改变空间布局和物件位置
-
-## 分集规划要求
-
-- 每集适合制作2-3分钟的短剧视频
-- 每集必须有独立的起承转合
-- 每集结尾必须有悬念钩子，吸引观众看下一集
-- 短剧第一集的开头必须在5秒内抓住观众注意力
-- 保持原著的叙事风格和情感基调
-- original_text 字段存放该集对应的原文内容（完整复制，不要省略）
 
 ## 输出格式
 
@@ -1580,8 +1952,7 @@ export class AnalysisService {
       "description": "角色简介（中文，2-3句话，包含性格和角色功能）",
       "visual_prompt": "3d anime style, cel-shading, ... (完整英文视觉描述)",
       "visual_negative": "realistic, photographic, ... (英文负面提示词)",
-      "states": {"状态名": "该状态下的完整英文视觉描述"} 或 null,
-      "appears_in_episodes": [1, 2, 3]
+      "states": {"状态名": "该状态下的完整英文视觉描述"} 或 null
     }
   ],
   "scenes": [
@@ -1590,16 +1961,54 @@ export class AnalysisService {
       "description": "场景简介（中文）",
       "visual_prompt": "3d anime style, ... (完整英文视觉描述)",
       "visual_negative": "realistic, photographic, ...",
-      "variants": {"night": "在默认描述基础上的夜晚变体", "storm": "暴风雨变体"} 或 null,
-      "appears_in_episodes": [1, 3]
+      "variants": {"night": "夜晚变体描述", "storm": "暴风雨变体描述"} 或 null
     }
-  ],
+  ]
+}`;
+  }
+
+  // ==================== Phase 2 提示词：分集规划 ====================
+
+  private buildEpisodeSystemPrompt(): string {
+    return `你是一位专业的短剧编剧。你的任务是将一篇短篇小说拆分为多集短剧。
+
+## 分集规划要求
+
+- 每集适合制作2-3分钟的短剧视频
+- 每集必须有独立的起承转合
+- 每集结尾必须有悬念钩子，吸引观众看下一集
+- 短剧第一集的开头必须在5秒内抓住观众注意力
+- 保持原著的叙事风格和情感基调
+- 每集对应的原文字数差异不超过30%，保持篇幅均衡
+
+## 原文定位规则（重要）
+
+- 不要复制原文内容到输出中
+- 使用 text_start_marker 和 text_end_marker 标记每集对应的原文范围
+- text_start_marker：该集原文**起始位置**的前20个字（从原文中精确复制）
+- text_end_marker：该集原文**结束位置**的后20个字（从原文中精确复制）
+- 每集的结束标记 = 下一集的起始标记（不要留空隙，也不要重叠）
+- 第一集的 text_start_marker 必须是小说开头的前20个字
+- 最后一集的 text_end_marker 必须是小说结尾的后20个字
+- 标记文本必须与原文完全一致（包括标点符号），不要做任何修改
+
+## 重要约束
+
+- character_names 和 scene_names 必须严格使用提供的名称列表中的名称，不要自创或修改
+- 确保每个角色和场景至少在一集中出现
+
+## 输出格式
+
+严格按照JSON格式输出，不要包含任何其他文字：
+
+{
   "episodes": [
     {
       "episode_number": 1,
       "title": "集标题",
       "summary": "剧情摘要（中文，3-5句话）",
-      "original_text": "该集对应的完整原文",
+      "text_start_marker": "原文起始处的前20个字（精确复制）",
+      "text_end_marker": "原文结束处的后20个字（精确复制）",
       "character_names": ["角色A", "角色B"],
       "scene_names": ["场景A", "场景B"],
       "emotion_curve": "平静 → 温馨 → 不安 → 震惊",
@@ -1609,10 +2018,79 @@ export class AnalysisService {
 }`;
   }
 
-  private buildUserPrompt(novelText: string): string {
-    return `请分析以下短篇小说：
+  private buildEpisodeUserPrompt(novelText: string, characterNames: string[], sceneNames: string[]): string {
+    return `## 已提取的角色列表
+${characterNames.map(n => `- ${n}`).join('\n')}
 
-${novelText}`;
+## 已提取的场景列表
+${sceneNames.map(n => `- ${n}`).join('\n')}
+
+## 小说原文
+
+${novelText}
+
+请基于以上角色和场景，将小说拆分为多集短剧。character_names 和 scene_names 必须严格使用上方列表中的名称。
+注意：不要复制原文，只需提供 text_start_marker 和 text_end_marker 标记每集的原文范围。`;
+  }
+
+  // ==================== 原文截取工具方法 ====================
+
+  /**
+   * 根据起止标记从原文中截取对应段落
+   *
+   * 策略：使用模糊匹配（允许标点差异），找到最佳匹配位置后截取。
+   * 如果找不到精确匹配，使用最长公共子串进行模糊定位。
+   */
+  private extractOriginalText(
+    fullText: string,
+    startMarker: string,
+    endMarker: string,
+  ): string {
+    // 去除标记中的空白差异
+    const normalizedFull = fullText;
+    const startIdx = this.fuzzyIndexOf(normalizedFull, startMarker);
+    const endIdx = this.fuzzyIndexOf(normalizedFull, endMarker);
+
+    if (startIdx === -1 || endIdx === -1) {
+      this.logger.warn(
+        `原文标记匹配失败: start="${startMarker.slice(0, 10)}..." (${startIdx}), ` +
+        `end="...${endMarker.slice(-10)}" (${endIdx})`
+      );
+      // 降级：如果匹配失败，返回空字符串，后续人工处理
+      return '';
+    }
+
+    // endIdx 指向结束标记的开始位置，需要加上结束标记的长度
+    const endPosition = endIdx + endMarker.length;
+    return fullText.slice(startIdx, endPosition);
+  }
+
+  /**
+   * 模糊查找：先尝试精确匹配，失败后去除空白和标点差异重试
+   */
+  private fuzzyIndexOf(text: string, marker: string): number {
+    // 1. 精确匹配
+    const exactIdx = text.indexOf(marker);
+    if (exactIdx !== -1) return exactIdx;
+
+    // 2. 去除多余空白后匹配
+    const normalize = (s: string) => s.replace(/\s+/g, '');
+    const normalizedText = normalize(text);
+    const normalizedMarker = normalize(marker);
+    const normalizedIdx = normalizedText.indexOf(normalizedMarker);
+
+    if (normalizedIdx !== -1) {
+      // 反向映射到原文位置：遍历原文，跳过空白字符计数
+      let count = 0;
+      for (let i = 0; i < text.length; i++) {
+        if (!/\s/.test(text[i])) {
+          if (count === normalizedIdx) return i;
+          count++;
+        }
+      }
+    }
+
+    return -1;  // 匹配失败
   }
 }
 ```
@@ -1620,6 +2098,21 @@ ${novelText}`;
 ---
 
 ### 5.4 Step2：视觉资产生成
+
+> **设计说明（9 宫格设定图方案）**：
+>
+> 原方案为每个角色独立生成 6 张图片（正面、侧面、4 种表情），存在两个问题：
+> 1. **一致性差**：6 次独立调用，角色面容、服装、体型每次都可能不同
+> 2. **成本高**：每角色 6 次 API 调用
+>
+> **改进方案：角色设定图（Character Sheet）**
+> - 每个角色只生成 **1 张 9 宫格设定图**，在一张大图中包含正面、侧面、背面、3/4 视角、不同表情等
+> - 因为在同一张画布上生成，模型会自然保持角色外观一致性
+> - 用户在资产审核页面查看设定图，通过 **可视化裁剪工具** 框选需要的子图并标记类型（正面/侧面/表情等）
+> - 裁剪后的子图用于后续分镜的参考图
+> - 如果设定图不满意，用户可以 **重新生成**（仅消耗 1 次 API 调用的费用）
+>
+> **成本对比**：每角色从 6 次调用降为 1 次，成本降低约 80%
 
 ```typescript
 // server/src/steps/asset/asset.service.ts
@@ -1629,6 +2122,7 @@ import { PrismaService } from '../../common/prisma.service';
 import { ImageGenService } from '../../providers/image-gen/image-gen.service';
 import { StorageService } from '../../providers/storage/storage.service';
 import { WsGateway } from '../../common/ws.gateway';
+import { executeBatch } from '../../common/concurrency';
 
 @Injectable()
 export class AssetService {
@@ -1649,95 +2143,235 @@ export class AssetService {
       where: { projectId },
     });
 
-    // 并行生成所有角色定妆照和场景锚图
-    const tasks: Promise<void>[] = [];
+    const totalAssets = characters.length + scenes.length;
+    let completedAssets = 0;
+
+    // 使用 executeBatch 控制并发（避免 Promise.all 无限并发触发限流）
+    const taskFactories: Array<() => Promise<void>> = [];
 
     for (const character of characters) {
-      tasks.push(this.generateCharacterImages(projectId, character));
+      taskFactories.push(async () => {
+        await this.generateCharacterSheet(projectId, character);
+        completedAssets++;
+        this.ws.emitToProject(projectId, 'progress:detail', {
+          step: 'asset',
+          message: `视觉资产生成中 ${completedAssets}/${totalAssets}（角色设定图：${character.name}）`,
+          completed: completedAssets,
+          total: totalAssets,
+          entityType: 'character',
+          entityId: character.id,
+        });
+      });
     }
 
     for (const scene of scenes) {
-      tasks.push(this.generateSceneImages(projectId, scene));
+      taskFactories.push(async () => {
+        await this.generateSceneImages(projectId, scene);
+        completedAssets++;
+        this.ws.emitToProject(projectId, 'progress:detail', {
+          step: 'asset',
+          message: `视觉资产生成中 ${completedAssets}/${totalAssets}（场景：${scene.name}）`,
+          completed: completedAssets,
+          total: totalAssets,
+          entityType: 'scene',
+          entityId: scene.id,
+        });
+      });
     }
 
-    await Promise.all(tasks);
+    // 最多 5 个并发
+    await executeBatch(taskFactories, 5);
 
-    this.logger.log(`Project ${projectId} - 视觉资产生成完成`);
+    this.logger.log(`Project ${projectId} - 视觉资产生成完成（设定图已生成，等待用户裁剪确认）`);
   }
 
+  // ==================== 角色设定图生成 ====================
+
   /**
-   * 为单个角色生成定妆照
+   * 为单个角色生成 9 宫格设定图（Character Sheet）
+   *
+   * 生成一张包含多视角、多表情的设定图，由用户在审核阶段手动裁剪出需要的子图。
+   * 优势：同一张图内角色外观自然保持一致，成本仅为原方案的 1/6。
    */
-  private async generateCharacterImages(projectId: string, character: any): Promise<void> {
-    // 定义要生成的图片类型
-    const imageTypes = [
-      { type: 'front', desc: 'front view, full body, standing pose, facing camera' },
-      { type: 'side', desc: 'side view, full body, profile view' },
-      { type: 'expression_happy', desc: 'close-up portrait, happy smiling expression' },
-      { type: 'expression_sad', desc: 'close-up portrait, sad melancholy expression' },
-      { type: 'expression_angry', desc: 'close-up portrait, angry fierce expression' },
-      { type: 'expression_fear', desc: 'close-up portrait, fearful terrified expression' },
-    ];
+  private async generateCharacterSheet(projectId: string, character: any): Promise<void> {
+    // 默认状态的设定图
+    await this.generateSingleSheet(projectId, character, null);
 
-    // 默认状态的定妆照
-    for (const imgType of imageTypes) {
-      const prompt = `${character.visualPrompt}, ${imgType.desc}, white background, character sheet, high quality, detailed`;
-
-      const result = await this.imageGen.generate({
-        prompt,
-        negativePrompt: character.visualNegative,
-        width: 1024,
-        height: 1024,
-      });
-
-      // 下载并存储到MinIO
-      const storagePath = this.storage.generatePath(projectId, 'characters', 'png');
-      const localUrl = await this.storage.uploadFromUrl(result.imageUrl, storagePath);
-
-      await this.prisma.characterImage.create({
-        data: {
-          characterId: character.id,
-          imageType: imgType.type,
-          imageUrl: localUrl,
-          stateName: null, // 默认状态
-        },
-      });
-
-      // 通知前端
-      this.ws.emitToProject(projectId, 'asset:character:image', {
-        characterId: character.id,
-        imageType: imgType.type,
-        imageUrl: localUrl,
-      });
-    }
-
-    // 如果有状态变体（如鬼魂状态），为每个变体生成正面照
+    // 如果有状态变体（如鬼魂状态），为每个变体生成独立的设定图
     const states = character.states as Record<string, string> | null;
     if (states) {
       for (const [stateName, statePrompt] of Object.entries(states)) {
-        const prompt = `${statePrompt}, front view, full body, facing camera, white background, character sheet, high quality`;
-
-        const result = await this.imageGen.generate({
-          prompt,
-          negativePrompt: character.visualNegative,
-          width: 1024,
-          height: 1024,
-        });
-
-        const storagePath = this.storage.generatePath(projectId, 'characters', 'png');
-        const localUrl = await this.storage.uploadFromUrl(result.imageUrl, storagePath);
-
-        await this.prisma.characterImage.create({
-          data: {
-            characterId: character.id,
-            imageType: 'front',
-            imageUrl: localUrl,
-            stateName,
-          },
-        });
+        // 状态变体使用变体专属的 visualPrompt
+        const stateCharacter = { ...character, visualPrompt: statePrompt };
+        await this.generateSingleSheet(projectId, stateCharacter, stateName);
       }
     }
   }
+
+  /**
+   * 生成一张 9 宫格设定图
+   */
+  private async generateSingleSheet(
+    projectId: string,
+    character: any,
+    stateName: string | null,
+  ): Promise<void> {
+    const prompt = this.buildCharacterSheetPrompt(character.visualPrompt);
+
+    const result = await this.imageGen.generate({
+      prompt,
+      negativePrompt: `${character.visualNegative}, single view, single pose, cropped, partial body`,
+      width: 1536,   // 较大尺寸，确保每个子图裁剪后仍有足够分辨率（~512x512 per cell）
+      height: 1536,
+    });
+
+    // 下载并存储完整设定图
+    const storagePath = this.storage.generatePath(projectId, 'character-sheets', 'png');
+    const localUrl = await this.storage.uploadFromUrl(result.imageUrl, storagePath);
+
+    // 存储设定图记录
+    await this.prisma.characterSheet.create({
+      data: {
+        characterId: character.id,
+        imageUrl: localUrl,
+        stateName,
+        gridSpec: '3x3',
+      },
+    });
+
+    // 通知前端：设定图已生成
+    this.ws.emitToProject(projectId, 'asset:character:sheet', {
+      characterId: character.id,
+      sheetUrl: localUrl,
+      stateName,
+    });
+  }
+
+  /**
+   * 构建 9 宫格设定图的 prompt
+   *
+   * 关键技巧：
+   * 1. "character sheet" / "character turnaround" 是图片生成模型理解的标准术语
+   * 2. 明确列出每个格子的内容要求
+   * 3. "white background" + "reference sheet" 引导模型生成干净的设定图风格
+   * 4. 使用 "3x3 grid" 明确布局
+   */
+  private buildCharacterSheetPrompt(visualPrompt: string): string {
+    return [
+      visualPrompt,
+      'character reference sheet',
+      '3x3 grid layout',
+      'multiple views and expressions on white background',
+      // 第一行：全身多角度
+      'top row: front full body view, 3/4 angle full body view, side profile full body view',
+      // 第二行：上半身 + 表情
+      'middle row: back view upper body, close-up happy expression, close-up angry expression',
+      // 第三行：更多表情和细节
+      'bottom row: close-up sad expression, close-up surprised expression, close-up neutral expression',
+      'consistent character design across all views',
+      'clean white background',
+      'high quality, detailed, professional character sheet',
+    ].join(', ');
+  }
+
+  // ==================== 用户裁剪（由 API 路由调用，非流水线步骤） ====================
+
+  /**
+   * 用户从设定图中裁剪出单张角色图
+   *
+   * 由前端资产审核页面调用，用户在 canvas 上框选区域后提交裁剪请求。
+   * 服务端使用 sharp 库进行像素级裁剪，确保裁剪精度。
+   *
+   * @param sheetId - 设定图ID
+   * @param imageType - 图片类型标注（front/side/expression_happy 等）
+   * @param cropRegion - 裁剪区域 {x, y, width, height}
+   */
+  async cropFromSheet(
+    sheetId: string,
+    imageType: string,
+    cropRegion: { x: number; y: number; width: number; height: number },
+  ): Promise<{ id: string; imageUrl: string }> {
+    const sheet = await this.prisma.characterSheet.findUnique({
+      where: { id: sheetId },
+      include: { character: true },
+    });
+
+    if (!sheet) throw new Error(`CharacterSheet ${sheetId} not found`);
+
+    // 1. 下载设定图原图
+    const response = await fetch(sheet.imageUrl);
+    const sheetBuffer = Buffer.from(await response.arrayBuffer());
+
+    // 2. 使用 sharp 裁剪指定区域
+    const sharp = (await import('sharp')).default;
+    const croppedBuffer = await sharp(sheetBuffer)
+      .extract({
+        left: Math.round(cropRegion.x),
+        top: Math.round(cropRegion.y),
+        width: Math.round(cropRegion.width),
+        height: Math.round(cropRegion.height),
+      })
+      .png()
+      .toBuffer();
+
+    // 3. 上传裁剪后的图片
+    const projectId = sheet.character.projectId;
+    const storagePath = this.storage.generatePath(projectId, 'characters', 'png');
+    const croppedUrl = await this.storage.uploadBuffer(croppedBuffer, storagePath, 'image/png');
+
+    // 4. 存储裁剪记录
+    const created = await this.prisma.characterImage.create({
+      data: {
+        characterId: sheet.characterId,
+        sheetId: sheet.id,
+        imageType,
+        imageUrl: croppedUrl,
+        cropRegion: cropRegion as any,
+        stateName: sheet.stateName,
+      },
+    });
+
+    return { id: created.id, imageUrl: croppedUrl };
+  }
+
+  /**
+   * 重新生成角色设定图（用户对当前设定图不满意时调用）
+   *
+   * 删除旧设定图及其裁剪子图，重新生成一张新的。
+   */
+  async regenerateCharacterSheet(sheetId: string): Promise<void> {
+    const sheet = await this.prisma.characterSheet.findUnique({
+      where: { id: sheetId },
+      include: { character: true },
+    });
+
+    if (!sheet) throw new Error(`CharacterSheet ${sheetId} not found`);
+
+    const character = sheet.character;
+    const projectId = character.projectId;
+
+    // 删除旧设定图的裁剪子图
+    await this.prisma.characterImage.deleteMany({
+      where: { sheetId: sheet.id },
+    });
+
+    // 删除旧设定图
+    await this.prisma.characterSheet.delete({
+      where: { id: sheet.id },
+    });
+
+    // 重新生成
+    if (sheet.stateName) {
+      const states = character.states as Record<string, string> | null;
+      const statePrompt = states?.[sheet.stateName] || character.visualPrompt;
+      const stateCharacter = { ...character, visualPrompt: statePrompt };
+      await this.generateSingleSheet(projectId, stateCharacter, sheet.stateName);
+    } else {
+      await this.generateSingleSheet(projectId, character, null);
+    }
+  }
+
+  // ==================== 场景锚图生成（保持不变） ====================
 
   /**
    * 为单个场景生成锚图
@@ -1768,7 +2402,6 @@ export class AssetService {
     const variants = scene.variants as Record<string, string> | null;
     if (variants) {
       for (const [variantName, variantDesc] of Object.entries(variants)) {
-        // 变体基于默认锚图做风格调整，使用img2img + 参考图
         const variantPrompt = `${scene.visualPrompt}, ${variantDesc}, wide shot, establishing shot, 16:9, high quality`;
 
         const variantResult = await this.imageGen.generate({
@@ -1857,13 +2490,25 @@ export class StoryboardService {
       where: { projectId },
     });
 
-    // 逐集生成分镜（可并行，但为了节省LLM调用可串行）
-    for (const episode of episodes) {
-      await this.generateForEpisode(projectId, episode, characters, scenes);
+    // 逐集生成分镜（串行，避免LLM并发过高导致上下文混乱）
+    for (let i = 0; i < episodes.length; i++) {
+      const episode = episodes[i];
+
+      this.ws.emitToProject(projectId, 'progress:detail', {
+        step: 'storyboard',
+        message: `分镜生成中：第${episode.episodeNumber}集（${i + 1}/${episodes.length}）`,
+        completed: i,
+        total: episodes.length,
+        entityType: 'episode',
+        entityId: episode.id,
+      });
+
+      const shotCount = await this.generateForEpisode(projectId, episode, characters, scenes);
 
       this.ws.emitToProject(projectId, 'storyboard:episode:complete', {
         episodeId: episode.id,
         episodeNumber: episode.episodeNumber,
+        shotCount,
       });
     }
   }
@@ -1873,7 +2518,7 @@ export class StoryboardService {
     episode: any,
     characters: any[],
     scenes: any[],
-  ): Promise<void> {
+  ): Promise<number> {
     const systemPrompt = this.buildSystemPrompt();
     const userPrompt = this.buildUserPrompt(episode, characters, scenes);
 
@@ -1937,6 +2582,8 @@ export class StoryboardService {
     this.logger.log(
       `Episode ${episode.episodeNumber} - 生成 ${result.shots.length} 个镜头`
     );
+
+    return result.shots.length;
   }
 
   // ==================== 提示词模板 ====================
@@ -2061,6 +2708,7 @@ import { PrismaService } from '../../common/prisma.service';
 import { ImageGenService } from '../../providers/image-gen/image-gen.service';
 import { StorageService } from '../../providers/storage/storage.service';
 import { WsGateway } from '../../common/ws.gateway';
+import { executeBatch } from '../../common/concurrency';
 
 @Injectable()
 export class AnchorService {
@@ -2088,17 +2736,24 @@ export class AnchorService {
       orderBy: { sortOrder: 'asc' },
     });
 
-    // 所有镜头并行生成锚点图片
-    const tasks: Promise<void>[] = [];
+    // 收集所有镜头的生成任务（工厂函数，延迟执行）
+    const taskFactories: Array<() => Promise<void>> = [];
 
     for (const episode of episodes) {
       for (const shot of episode.shots) {
-        tasks.push(this.generateForShot(shot.id));
+        taskFactories.push(() => this.generateForShot(shot.id));
       }
     }
 
-    // 并行执行（可限制并发数避免API限流）
-    await this.executeBatch(tasks, 5); // 最多5个并发
+    // 控制并发执行（最多5个并发，避免API限流），使用公共并发工具
+    await executeBatch(taskFactories, 5, (completed, total) => {
+      this.ws.emitToProject(projectId, 'progress:detail', {
+        step: 'anchor',
+        message: `锚点生成中 ${completed}/${total}`,
+        completed,
+        total,
+      });
+    });
 
     this.logger.log(`Project ${projectId} - 视觉锚点生成完成`);
   }
@@ -2242,23 +2897,7 @@ export class AnchorService {
     }
   }
 
-  /**
-   * 控制并发的批量执行
-   */
-  private async executeBatch(tasks: Promise<void>[], concurrency: number): Promise<void> {
-    const executing = new Set<Promise<void>>();
-
-    for (const task of tasks) {
-      const wrapped = task.then(() => { executing.delete(wrapped); });
-      executing.add(wrapped);
-
-      if (executing.size >= concurrency) {
-        await Promise.race(executing);
-      }
-    }
-
-    await Promise.all(executing);
-  }
+  // executeBatch 已抽取到 common/concurrency.ts，此处直接引用
 }
 ```
 
@@ -2274,6 +2913,7 @@ import { PrismaService } from '../../common/prisma.service';
 import { VideoGenService } from '../../providers/video-gen/video-gen.service';
 import { StorageService } from '../../providers/storage/storage.service';
 import { WsGateway } from '../../common/ws.gateway';
+import { executeBatch } from '../../common/concurrency';
 
 @Injectable()
 export class VideoService {
@@ -2298,17 +2938,24 @@ export class VideoService {
       orderBy: { sortOrder: 'asc' },
     });
 
-    // 所有镜头并行生成视频
-    const tasks: Promise<void>[] = [];
+    // 收集所有镜头的生成任务（工厂函数，延迟执行）
+    const taskFactories: Array<() => Promise<void>> = [];
 
     for (const episode of episodes) {
       for (const shot of episode.shots) {
-        tasks.push(this.generateForShot(shot.id));
+        taskFactories.push(() => this.generateForShot(shot.id));
       }
     }
 
-    // 控制并发（视频生成API通常有严格的并发限制）
-    await this.executeBatch(tasks, 3);
+    // 控制并发（视频生成API通常有严格的并发限制），使用公共并发工具
+    await executeBatch(taskFactories, 3, (completed, total) => {
+      this.ws.emitToProject(projectId, 'progress:detail', {
+        step: 'video',
+        message: `视频生成中 ${completed}/${total}`,
+        completed,
+        total,
+      });
+    });
 
     this.logger.log(`Project ${projectId} - 视频生成完成`);
   }
@@ -2378,20 +3025,7 @@ export class VideoService {
     });
   }
 
-  private async executeBatch(tasks: Promise<void>[], concurrency: number): Promise<void> {
-    const executing = new Set<Promise<void>>();
-
-    for (const task of tasks) {
-      const wrapped = task.then(() => { executing.delete(wrapped); });
-      executing.add(wrapped);
-
-      if (executing.size >= concurrency) {
-        await Promise.race(executing);
-      }
-    }
-
-    await Promise.all(executing);
-  }
+  // executeBatch 已抽取到 common/concurrency.ts，此处直接引用
 }
 ```
 
@@ -2520,6 +3154,8 @@ export class AssemblyService {
 
   /**
    * 根据分镜的对话和旁白生成SRT字幕
+   *
+   * 时间轴策略：将镜头时长按字幕条目数均分，避免多条对话重叠显示
    */
   private generateSRT(shots: any[]): string {
     const entries: string[] = [];
@@ -2527,34 +3163,42 @@ export class AssemblyService {
     let currentTime = 0; // 秒
 
     for (const shot of shots) {
-      const startTime = currentTime;
-      const endTime = currentTime + shot.duration;
+      const shotStart = currentTime;
+      const shotEnd = currentTime + shot.duration;
 
-      // 对话字幕
+      // 收集本镜头内的所有字幕条目
+      const subtitleItems: { text: string }[] = [];
+
       const dialogues = shot.dialogue as any[] | null;
       if (dialogues) {
         for (const d of dialogues) {
+          subtitleItems.push({ text: `${d.speaker}：${d.text}` });
+        }
+      }
+
+      const narration = shot.narration as any | null;
+      if (narration) {
+        subtitleItems.push({ text: narration.text });
+      }
+
+      // 将镜头时长按字幕条目数均分
+      if (subtitleItems.length > 0) {
+        const sliceDuration = shot.duration / subtitleItems.length;
+
+        for (let i = 0; i < subtitleItems.length; i++) {
+          const sliceStart = shotStart + sliceDuration * i;
+          const sliceEnd = shotStart + sliceDuration * (i + 1);
+
           entries.push(
             `${index}\n` +
-            `${this.formatSRTTime(startTime)} --> ${this.formatSRTTime(endTime)}\n` +
-            `${d.speaker}：${d.text}\n`
+            `${this.formatSRTTime(sliceStart)} --> ${this.formatSRTTime(sliceEnd)}\n` +
+            `${subtitleItems[i].text}\n`
           );
           index++;
         }
       }
 
-      // 旁白字幕
-      const narration = shot.narration as any | null;
-      if (narration) {
-        entries.push(
-          `${index}\n` +
-          `${this.formatSRTTime(startTime)} --> ${this.formatSRTTime(endTime)}\n` +
-          `${narration.text}\n`
-        );
-        index++;
-      }
-
-      currentTime = endTime;
+      currentTime = shotEnd;
     }
 
     return entries.join('\n');
@@ -2652,7 +3296,7 @@ export default router;
   步骤导航：
   ① 概览（上传小说）
   ② 分集预览（Step1结果）
-  ③ 视觉资产（Step2结果，需确认）
+  ③ 视觉资产（Step2结果，需确认 —— 设定图查看 + 裁剪工具）
   ④ 分镜编辑（Step3结果）
   ⑤ 生成监控（Step4+5进度）
   ⑥ 成片预览（Step6结果）
@@ -2660,6 +3304,17 @@ export default router;
   每个步骤面板根据项目当前状态决定是否可用：
   - 当前步骤和已完成步骤 → 可访问
   - 未来步骤 → 置灰不可点击
+
+  ③ 视觉资产页面详细交互：
+  - 按角色分组展示，每个角色显示其设定图（9宫格大图）
+  - 设定图右上角有"重新生成"按钮（不满意时重试，消耗1次API调用）
+  - 设定图下方有 Canvas 裁剪工具：
+    a. 用户在图上拖拽矩形框选区域
+    b. 选择图片类型（正面/侧面/3/4视角/表情-喜/表情-怒/表情-哀/背面）
+    c. 点击"裁剪保存"，服务端裁剪后存储
+    d. 已裁剪的子图以缩略图列表展示在设定图下方，可删除
+  - 每个角色至少需要 1 张"正面全身"（front）类型的裁剪图
+  - 校验通过后显示"确认资产，开始分镜"按钮
 -->
 ```
 
@@ -2731,6 +3386,7 @@ export function useWebSocket() {
     const projectStore = useProjectStore();
 
     switch (message.event) {
+      // ===== 步骤级事件 =====
       case 'step:start':
         projectStore.setCurrentStep(message.data.step);
         break;
@@ -2743,13 +3399,37 @@ export function useWebSocket() {
       case 'step:failed':
         projectStore.setStepFailed(message.data.step, message.data.error);
         break;
-      case 'asset:character:image':
-        projectStore.addCharacterImage(
+
+      // ===== 细粒度进度事件 =====
+      case 'progress:detail':
+        projectStore.updateProgress({
+          step: message.data.step,
+          message: message.data.message,
+          completed: message.data.completed,
+          total: message.data.total,
+          entityType: message.data.entityType,
+          entityId: message.data.entityId,
+        });
+        break;
+
+      // ===== 资产生成事件 =====
+      case 'asset:character:sheet':
+        projectStore.addCharacterSheet(
           message.data.characterId,
-          message.data.imageType,
-          message.data.imageUrl,
+          message.data.sheetUrl,
+          message.data.stateName,
         );
         break;
+
+      // ===== 分镜生成事件 =====
+      case 'storyboard:episode:complete':
+        projectStore.markEpisodeStoryboardComplete(
+          message.data.episodeId,
+          message.data.shotCount,
+        );
+        break;
+
+      // ===== 锚点/视频生成事件 =====
       case 'anchor:shot:complete':
         projectStore.setShotAnchors(
           message.data.shotId,
@@ -2760,11 +3440,18 @@ export function useWebSocket() {
       case 'video:shot:complete':
         projectStore.setShotVideo(message.data.shotId, message.data.videoUrl);
         break;
+
+      // ===== 组装/完成事件 =====
       case 'assembly:episode:complete':
         projectStore.setEpisodeVideo(message.data.episodeId, message.data.videoUrl);
         break;
       case 'project:complete':
         projectStore.setProjectComplete();
+        break;
+
+      // ===== 错误事件 =====
+      case 'error':
+        projectStore.setError(message.data.message);
         break;
     }
   }
@@ -2788,12 +3475,15 @@ import {
 } from '@nestjs/websockets';
 import { Server, WebSocket } from 'ws';
 import { Injectable, Logger } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { PrismaService } from './prisma.service';
 import type { WsServerEvent } from '@aicomic/shared';
 import { IncomingMessage } from 'http';
 import * as url from 'url';
 
 interface ClientInfo {
   ws: WebSocket;
+  userId: string;            // 鉴权后绑定的用户ID
   projectIds: Set<string>;
 }
 
@@ -2802,21 +3492,47 @@ interface ClientInfo {
 export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(WsGateway.name);
 
+  constructor(
+    private jwtService: JwtService,
+    private prisma: PrismaService,
+  ) {}
+
   @WebSocketServer()
   server: Server;
 
   /** 所有已连接的客户端 */
   private clients = new Map<WebSocket, ClientInfo>();
 
-  handleConnection(client: WebSocket, req: IncomingMessage) {
-    // 从URL中提取token进行鉴权（简化版，生产环境建议用更安全的方式）
+  async handleConnection(client: WebSocket, req: IncomingMessage) {
+    // ========== JWT 鉴权 ==========
     const params = url.parse(req.url || '', true).query;
     const token = params.token as string;
 
-    // TODO: 验证JWT token，获取userId
+    if (!token) {
+      this.logger.warn('WebSocket 连接缺少 token，拒绝连接');
+      client.close(4001, 'Missing token');
+      return;
+    }
 
-    this.clients.set(client, { ws: client, projectIds: new Set() });
-    this.logger.log(`Client connected, total: ${this.clients.size}`);
+    try {
+      const payload = this.jwtService.verify(token);
+      const userId = payload.sub as string;
+
+      // 可选：验证用户是否存在
+      const user = await this.prisma.user.findUnique({ where: { id: userId } });
+      if (!user) {
+        client.close(4002, 'User not found');
+        return;
+      }
+
+      this.clients.set(client, { ws: client, userId, projectIds: new Set() });
+      this.logger.log(`Client connected (user: ${userId}), total: ${this.clients.size}`);
+
+    } catch (err) {
+      this.logger.warn(`WebSocket JWT 验证失败: ${err.message}`);
+      client.close(4003, 'Invalid token');
+      return;
+    }
 
     // 监听客户端消息
     client.on('message', (raw: string) => {
@@ -2836,12 +3552,24 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   /**
    * 处理客户端消息（订阅/取消订阅项目）
+   * 订阅时校验该用户是否拥有该项目，防止越权访问
    */
-  private handleClientMessage(client: WebSocket, message: any) {
+  private async handleClientMessage(client: WebSocket, message: any) {
     const info = this.clients.get(client);
     if (!info) return;
 
     if (message.event === 'subscribe' && message.data?.projectId) {
+      // 鉴权：校验项目归属
+      const project = await this.prisma.project.findFirst({
+        where: { id: message.data.projectId, userId: info.userId },
+      });
+      if (!project) {
+        client.send(JSON.stringify({
+          event: 'error',
+          data: { message: '无权访问该项目' },
+        }));
+        return;
+      }
       info.projectIds.add(message.data.projectId);
     } else if (message.event === 'unsubscribe' && message.data?.projectId) {
       info.projectIds.delete(message.data.projectId);
@@ -2865,6 +3593,7 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 ```
 
 > 注意：所有 Step Service 中的 `SocketGateway` 引用统一替换为 `WsGateway`，方法签名 `emitToProject(projectId, event, data)` 保持不变。
+> WebSocket 连接时进行 JWT 鉴权，鉴权失败直接关闭连接（4001/4002/4003 状态码）；订阅项目时校验项目归属，防止越权访问。
 
 ---
 
@@ -2893,23 +3622,39 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 |------|------|------|
 | POST | `/api/projects/:id/novel` | 上传小说文本 |
 | POST | `/api/projects/:id/pipeline/start` | 开始流水线（从Step1开始） |
-| POST | `/api/projects/:id/pipeline/confirm-assets` | 确认资产，继续流水线 |
+| POST | `/api/projects/:id/pipeline/confirm-assets` | 确认资产（用户裁剪完成后），继续流水线 |
 | POST | `/api/projects/:id/pipeline/restart/:step` | 从指定步骤重跑 |
 | POST | `/api/shots/:id/retry/:step` | 重新生成单个镜头 |
 
-### 7.4 数据查询
+### 7.4 角色设定图与裁剪
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/projects/:id/character-sheets` | 获取所有角色设定图列表 |
+| POST | `/api/character-sheets/:id/regenerate` | 重新生成某张设定图（不满意时重试） |
+| POST | `/api/character-sheets/:id/crop` | 从设定图裁剪子图（body: {imageType, cropRegion}） |
+| DELETE | `/api/character-images/:id` | 删除某张裁剪图 |
+
+> **裁剪流程**：
+> 1. 流水线 Step2 自动为每个角色生成 1 张 9 宫格设定图，状态进入 `asset_review`
+> 2. 用户在前端查看设定图，不满意可点击"重新生成"（调用 regenerate 接口）
+> 3. 满意后，用户在 canvas 上框选区域，标注类型（正面/侧面/表情等），提交裁剪（调用 crop 接口）
+> 4. 每个角色至少需要裁剪 1 张"正面全身"图（`front`类型），作为后续分镜参考
+> 5. 所有角色裁剪完成后，点击"确认资产"继续流水线
+
+### 7.5 数据查询
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/projects/:id/episodes` | 获取分集列表 |
 | PUT | `/api/episodes/:id` | 修改集信息（标题、摘要等） |
-| GET | `/api/projects/:id/characters` | 获取角色列表（含定妆照） |
+| GET | `/api/projects/:id/characters` | 获取角色列表（含设定图和裁剪图） |
 | GET | `/api/projects/:id/scenes` | 获取场景列表（含锚图） |
 | GET | `/api/episodes/:id/shots` | 获取某集的分镜列表 |
 | PUT | `/api/shots/:id` | 修改镜头信息 |
 | GET | `/api/episodes/:id/final-video` | 获取某集的成片 |
 
-### 7.5 计费
+### 7.6 计费
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -2975,10 +3720,11 @@ Phase 2：Step1 全文分析+分集（3-5天）
   ✅ 联调测试
 
 Phase 3：Step2 视觉资产生成（3-5天）
-  ✅ AssetService 角色定妆照生成
+  ✅ AssetService 角色设定图生成（9宫格 Character Sheet）
   ✅ AssetService 场景锚图生成
-  ✅ 前端：资产预览+确认页面
-  ✅ 重新生成功能
+  ✅ 前端：设定图预览 + Canvas 裁剪工具 + 子图管理
+  ✅ 重新生成设定图功能
+  ✅ 裁剪保存 + 资产确认流程
 
 Phase 4：Step3 分镜生成（3-5天）
   ✅ StoryboardService + 提示词调试
