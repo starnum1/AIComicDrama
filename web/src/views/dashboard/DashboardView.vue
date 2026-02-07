@@ -21,15 +21,6 @@ const createDialogVisible = ref(false)
 const newProjectName = ref('')
 const nickname = ref('')
 
-const stats = computed(() => ({
-  total: projects.value.length,
-  running: projects.value.filter((p) =>
-    ['analyzing', 'assets_generating', 'storyboarding', 'anchoring', 'video_generating', 'assembling'].includes(p.status),
-  ).length,
-  completed: projects.value.filter((p) => p.status === 'completed').length,
-  failed: projects.value.filter((p) => p.status === 'failed').length,
-}))
-
 onMounted(() => {
   fetchProjects()
   fetchProfile()
@@ -60,7 +51,6 @@ async function fetchProjects() {
       localStorage.removeItem('token')
       router.push('/login')
     }
-    ElMessage.error('获取项目列表失败')
   } finally {
     loading.value = false
   }
@@ -71,7 +61,6 @@ async function createProject() {
     ElMessage.warning('请输入项目名称')
     return
   }
-
   try {
     const token = localStorage.getItem('token')
     const { data } = await axios.post(
@@ -90,7 +79,9 @@ async function createProject() {
 
 async function deleteProject(id: string, name: string) {
   try {
-    await ElMessageBox.confirm(`确定要删除项目「${name}」吗？此操作不可恢复。`, '删除确认', {
+    await ElMessageBox.confirm(`确定删除「${name}」？此操作不可恢复`, '删除确认', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
       type: 'warning',
     })
     const token = localStorage.getItem('token')
@@ -100,34 +91,38 @@ async function deleteProject(id: string, name: string) {
     ElMessage.success('删除成功')
     fetchProjects()
   } catch {
-    // 用户取消
+    // cancelled
   }
 }
 
-function getStatusTag(status: string) {
-  const map: Record<string, { type: string; label: string }> = {
-    created: { type: 'info', label: '已创建' },
-    analyzing: { type: '', label: '分析中' },
-    assets_generating: { type: '', label: '资产生成中' },
-    asset_review: { type: 'warning', label: '待审核' },
-    storyboarding: { type: '', label: '分镜中' },
-    anchoring: { type: '', label: '锚点生成中' },
-    video_generating: { type: '', label: '视频生成中' },
-    assembling: { type: '', label: '组装中' },
-    completed: { type: 'success', label: '已完成' },
-    failed: { type: 'danger', label: '失败' },
+function getStatusInfo(status: string) {
+  const map: Record<string, { color: string; label: string; icon: string }> = {
+    created: { color: '#a0a0b8', label: '草稿', icon: 'Edit' },
+    analyzing: { color: '#6c5ce7', label: '分析中', icon: 'Loading' },
+    assets_generating: { color: '#a29bfe', label: '资产生成', icon: 'Picture' },
+    asset_review: { color: '#fdcb6e', label: '待审核', icon: 'View' },
+    storyboarding: { color: '#00cec9', label: '分镜中', icon: 'Film' },
+    anchoring: { color: '#74b9ff', label: '锚点生成', icon: 'Aim' },
+    video_generating: { color: '#fd79a8', label: '视频生成', icon: 'VideoPlay' },
+    assembling: { color: '#e17055', label: '组装中', icon: 'SetUp' },
+    completed: { color: '#00b894', label: '已完成', icon: 'CircleCheck' },
+    failed: { color: '#d63031', label: '失败', icon: 'CircleClose' },
   }
-  return map[status] || { type: 'info', label: status }
+  return map[status] || { color: '#a0a0b8', label: status, icon: 'Document' }
 }
 
-function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+function timeAgo(dateStr: string) {
+  const d = new Date(dateStr)
+  const now = new Date()
+  const diff = now.getTime() - d.getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return '刚刚'
+  if (mins < 60) return `${mins} 分钟前`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours} 小时前`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days} 天前`
+  return d.toLocaleDateString('zh-CN')
 }
 
 function handleLogout() {
@@ -137,389 +132,669 @@ function handleLogout() {
 </script>
 
 <template>
-  <el-container class="dashboard-container">
-    <!-- 左侧导航 -->
-    <el-aside width="220px" class="aside">
-      <div class="logo">
-        <el-icon :size="28" color="#409eff"><Film /></el-icon>
-        <span class="logo-title">AI Comic Drama</span>
+  <div class="page">
+    <!-- 背景装饰 -->
+    <div class="bg-orb orb-1"></div>
+    <div class="bg-orb orb-2"></div>
+    <div class="bg-orb orb-3"></div>
+
+    <!-- 顶部导航 -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="brand">
+          <div class="brand-icon">
+            <svg viewBox="0 0 32 32" width="28" height="28" fill="none">
+              <rect width="32" height="32" rx="8" fill="url(#g1)" />
+              <path d="M8 22V10l8 6-8 6z" fill="#fff" />
+              <path d="M16 22V10l8 6-8 6z" fill="#fff" opacity="0.6" />
+              <defs><linearGradient id="g1" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#6c5ce7"/><stop offset="1" stop-color="#a29bfe"/></linearGradient></defs>
+            </svg>
+          </div>
+          <span class="brand-name">AI Comic Drama</span>
+        </div>
       </div>
-      <el-menu default-active="projects" class="aside-menu">
-        <el-menu-item index="projects">
-          <el-icon><Grid /></el-icon>
-          <span>项目管理</span>
-        </el-menu-item>
-        <el-menu-item index="billing" @click="router.push('/billing')">
-          <el-icon><Wallet /></el-icon>
-          <span>费用管理</span>
-        </el-menu-item>
-      </el-menu>
-      <div class="aside-footer">
+      <nav class="topbar-nav">
+        <a class="nav-item active" @click="router.push('/')">
+          <el-icon><HomeFilled /></el-icon>
+          工作台
+        </a>
+        <a class="nav-item" @click="router.push('/billing')">
+          <el-icon><Coin /></el-icon>
+          费用
+        </a>
+      </nav>
+      <div class="topbar-right">
         <el-dropdown trigger="click">
-          <div class="user-info">
-            <el-avatar :size="32" icon="User" />
+          <div class="user-chip">
+            <el-avatar :size="30" class="user-avatar">
+              {{ (nickname || 'U')[0].toUpperCase() }}
+            </el-avatar>
             <span class="user-name">{{ nickname || '用户' }}</span>
-            <el-icon class="ml-auto"><ArrowDown /></el-icon>
+            <el-icon><ArrowDown /></el-icon>
           </div>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item @click="handleLogout">
-                <el-icon><SwitchButton /></el-icon>
-                退出登录
-              </el-dropdown-item>
+              <el-dropdown-item @click="router.push('/billing')">费用管理</el-dropdown-item>
+              <el-dropdown-item divided @click="handleLogout">退出登录</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
       </div>
-    </el-aside>
+    </header>
 
-    <!-- 右侧主内容 -->
-    <el-container>
-      <!-- 顶栏 -->
-      <el-header class="header">
-        <div class="header-left">
-          <h2 class="page-title">项目管理</h2>
+    <!-- 主内容 -->
+    <main class="main">
+      <!-- Hero 区域 -->
+      <section class="hero">
+        <div class="hero-content">
+          <h1 class="hero-title">
+            用 AI 将小说变成
+            <span class="gradient-text">动漫短剧</span>
+          </h1>
+          <p class="hero-desc">
+            上传你的小说文本，AI 自动完成角色设计、分镜编排、视频生成，一站式产出完整短剧
+          </p>
+          <div class="hero-actions">
+            <button class="btn-primary btn-glow" @click="createDialogVisible = true">
+              <el-icon><Plus /></el-icon>
+              创建新项目
+            </button>
+          </div>
         </div>
-        <div class="header-right">
-          <el-button type="primary" size="default" @click="createDialogVisible = true">
+        <div class="hero-stats">
+          <div class="stat-pill">
+            <span class="stat-num">{{ projects.length }}</span>
+            <span class="stat-label">个项目</span>
+          </div>
+          <div class="stat-pill">
+            <span class="stat-num">{{ projects.filter(p => p.status === 'completed').length }}</span>
+            <span class="stat-label">已完成</span>
+          </div>
+          <div class="stat-pill">
+            <span class="stat-num">{{ projects.filter(p => !['created','completed','failed'].includes(p.status)).length }}</span>
+            <span class="stat-label">生成中</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 项目列表 -->
+      <section class="projects-section">
+        <div class="section-header">
+          <h2 class="section-title">我的项目</h2>
+          <button class="btn-ghost" @click="fetchProjects" :disabled="loading">
+            <el-icon><Refresh /></el-icon>
+            刷新
+          </button>
+        </div>
+
+        <!-- 空状态 -->
+        <div v-if="!loading && projects.length === 0" class="empty-state">
+          <div class="empty-icon">
+            <svg viewBox="0 0 120 120" width="120" height="120" fill="none">
+              <circle cx="60" cy="60" r="50" fill="rgba(108,92,231,0.1)" stroke="rgba(108,92,231,0.2)" stroke-width="2"/>
+              <path d="M45 65V50l20 15-20 15V65z" fill="rgba(108,92,231,0.4)"/>
+              <path d="M55 65V50l20 15-20 15V65z" fill="rgba(108,92,231,0.25)"/>
+            </svg>
+          </div>
+          <h3 class="empty-title">开始你的创作之旅</h3>
+          <p class="empty-desc">创建第一个项目，上传小说文本，让 AI 为你生成动漫短剧</p>
+          <button class="btn-primary" @click="createDialogVisible = true">
             <el-icon><Plus /></el-icon>
-            新建项目
-          </el-button>
+            创建第一个项目
+          </button>
         </div>
-      </el-header>
 
-      <el-main class="main">
-        <!-- 统计卡片 -->
-        <el-row :gutter="20" class="stats-row">
-          <el-col :span="6">
-            <el-card shadow="never" class="stat-card">
-              <div class="stat-icon" style="background: #ecf5ff; color: #409eff">
-                <el-icon :size="24"><Folder /></el-icon>
-              </div>
-              <div class="stat-content">
-                <div class="stat-value">{{ stats.total }}</div>
-                <div class="stat-label">全部项目</div>
-              </div>
-            </el-card>
-          </el-col>
-          <el-col :span="6">
-            <el-card shadow="never" class="stat-card">
-              <div class="stat-icon" style="background: #fdf6ec; color: #e6a23c">
-                <el-icon :size="24"><Loading /></el-icon>
-              </div>
-              <div class="stat-content">
-                <div class="stat-value">{{ stats.running }}</div>
-                <div class="stat-label">进行中</div>
-              </div>
-            </el-card>
-          </el-col>
-          <el-col :span="6">
-            <el-card shadow="never" class="stat-card">
-              <div class="stat-icon" style="background: #f0f9eb; color: #67c23a">
-                <el-icon :size="24"><CircleCheck /></el-icon>
-              </div>
-              <div class="stat-content">
-                <div class="stat-value">{{ stats.completed }}</div>
-                <div class="stat-label">已完成</div>
-              </div>
-            </el-card>
-          </el-col>
-          <el-col :span="6">
-            <el-card shadow="never" class="stat-card">
-              <div class="stat-icon" style="background: #fef0f0; color: #f56c6c">
-                <el-icon :size="24"><CircleClose /></el-icon>
-              </div>
-              <div class="stat-content">
-                <div class="stat-value">{{ stats.failed }}</div>
-                <div class="stat-label">失败</div>
-              </div>
-            </el-card>
-          </el-col>
-        </el-row>
-
-        <!-- 项目表格 -->
-        <el-card shadow="never" class="table-card">
-          <template #header>
-            <div class="table-header">
-              <span>项目列表</span>
-              <el-button text type="primary" @click="fetchProjects" :loading="loading">
-                <el-icon><Refresh /></el-icon>
-                刷新
-              </el-button>
+        <!-- 项目卡片网格 -->
+        <div v-else class="project-grid" v-loading="loading">
+          <!-- 新建卡片 -->
+          <div class="project-card create-card" @click="createDialogVisible = true">
+            <div class="create-icon">
+              <el-icon :size="36"><Plus /></el-icon>
             </div>
-          </template>
+            <span class="create-text">新建项目</span>
+          </div>
 
-          <el-table
-            :data="projects"
-            v-loading="loading"
-            style="width: 100%"
-            :header-cell-style="{ background: '#fafafa', color: '#606266' }"
-            @row-click="(row: Project) => router.push(`/project/${row.id}/overview`)"
-            row-class-name="clickable-row"
+          <!-- 项目卡片 -->
+          <div
+            v-for="project in projects"
+            :key="project.id"
+            class="project-card"
+            @click="router.push(`/project/${project.id}/overview`)"
           >
-            <el-table-column prop="name" label="项目名称" min-width="200">
-              <template #default="{ row }">
-                <div class="project-name-cell">
-                  <el-icon :size="18" color="#409eff"><Folder /></el-icon>
-                  <span class="project-name">{{ row.name }}</span>
+            <!-- 卡片顶部装饰条 -->
+            <div
+              class="card-accent"
+              :style="{ background: `linear-gradient(135deg, ${getStatusInfo(project.status).color}, ${getStatusInfo(project.status).color}88)` }"
+            ></div>
+
+            <div class="card-body">
+              <div class="card-top">
+                <h3 class="card-title">{{ project.name }}</h3>
+                <div
+                  class="status-badge"
+                  :style="{ color: getStatusInfo(project.status).color, borderColor: getStatusInfo(project.status).color + '40', background: getStatusInfo(project.status).color + '15' }"
+                >
+                  <el-icon :size="12"><component :is="getStatusInfo(project.status).icon" /></el-icon>
+                  {{ getStatusInfo(project.status).label }}
                 </div>
-              </template>
-            </el-table-column>
-            <el-table-column prop="status" label="状态" width="140" align="center">
-              <template #default="{ row }">
-                <el-tag :type="(getStatusTag(row.status).type as any)" size="default" effect="light">
-                  {{ getStatusTag(row.status).label }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="currentStep" label="当前步骤" width="160" align="center">
-              <template #default="{ row }">
-                <span class="step-text">{{ row.currentStep || '-' }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="createdAt" label="创建时间" width="180" align="center">
-              <template #default="{ row }">
-                {{ formatDate(row.createdAt) }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="updatedAt" label="更新时间" width="180" align="center">
-              <template #default="{ row }">
-                {{ formatDate(row.updatedAt) }}
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="160" align="center" fixed="right">
-              <template #default="{ row }">
-                <el-button
-                  type="primary"
-                  link
-                  size="default"
-                  @click.stop="router.push(`/project/${row.id}/overview`)"
-                >
-                  查看
-                </el-button>
-                <el-button
-                  type="danger"
-                  link
-                  size="default"
-                  @click.stop="deleteProject(row.id, row.name)"
-                >
-                  删除
-                </el-button>
-              </template>
-            </el-table-column>
+              </div>
 
-            <template #empty>
-              <el-empty description="暂无项目" :image-size="120">
-                <el-button type="primary" @click="createDialogVisible = true">
-                  <el-icon><Plus /></el-icon>
-                  新建项目
-                </el-button>
-              </el-empty>
-            </template>
-          </el-table>
-        </el-card>
-      </el-main>
-    </el-container>
+              <div class="card-meta">
+                <span class="meta-item">
+                  <el-icon :size="14"><Clock /></el-icon>
+                  {{ timeAgo(project.updatedAt) }}
+                </span>
+                <span v-if="project.currentStep && project.currentStep !== 'created'" class="meta-item">
+                  <el-icon :size="14"><Operation /></el-icon>
+                  {{ project.currentStep }}
+                </span>
+              </div>
+            </div>
 
-    <!-- 新建项目对话框 -->
-    <el-dialog v-model="createDialogVisible" title="新建项目" width="480px" :append-to-body="true">
-      <el-form label-width="80px">
-        <el-form-item label="项目名称">
-          <el-input
-            v-model="newProjectName"
-            placeholder="请输入项目名称，例如：我的第一部短剧"
-            size="large"
-            @keyup.enter="createProject"
-          />
-        </el-form-item>
-      </el-form>
+            <div class="card-footer" @click.stop>
+              <button class="btn-card" @click="router.push(`/project/${project.id}/overview`)">
+                打开项目
+              </button>
+              <button class="btn-card-danger" @click="deleteProject(project.id, project.name)">
+                <el-icon><Delete /></el-icon>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- 新建对话框 -->
+    <el-dialog
+      v-model="createDialogVisible"
+      title="创建新项目"
+      width="480px"
+      :append-to-body="true"
+      class="create-dialog"
+    >
+      <div class="dialog-hint">为你的短剧项目取一个名字</div>
+      <el-input
+        v-model="newProjectName"
+        placeholder="例如：校园悬疑短剧、都市奇幻冒险..."
+        size="large"
+        @keyup.enter="createProject"
+      />
       <template #footer>
         <el-button @click="createDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="createProject">创建</el-button>
+        <el-button type="primary" @click="createProject">
+          <el-icon><Plus /></el-icon>
+          创建
+        </el-button>
       </template>
     </el-dialog>
-  </el-container>
+  </div>
 </template>
 
 <style scoped>
-.dashboard-container {
+.page {
   height: 100vh;
   width: 100vw;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--bg-deep);
+  position: relative;
 }
 
-/* ===== 左侧导航 ===== */
-.aside {
-  background: #001529;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+/* ===== 背景装饰球 ===== */
+.bg-orb {
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+  z-index: 0;
 }
 
-.logo {
+.orb-1 {
+  width: 600px;
+  height: 600px;
+  background: rgba(108, 92, 231, 0.12);
+  top: -200px;
+  right: -100px;
+}
+
+.orb-2 {
+  width: 400px;
+  height: 400px;
+  background: rgba(0, 206, 201, 0.08);
+  bottom: -100px;
+  left: -100px;
+}
+
+.orb-3 {
+  width: 300px;
+  height: 300px;
+  background: rgba(253, 121, 168, 0.06);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* ===== 顶部导航 ===== */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
   height: 64px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  justify-content: space-between;
+  padding: 0 32px;
+  background: rgba(10, 10, 26, 0.8);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
 }
 
-.logo-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: #fff;
-  white-space: nowrap;
+.topbar-left {
+  display: flex;
+  align-items: center;
 }
 
-.aside-menu {
-  flex: 1;
-  border-right: none;
-  background: transparent;
-}
-
-.aside-menu .el-menu-item {
-  color: rgba(255, 255, 255, 0.7);
-  height: 48px;
-  line-height: 48px;
-}
-
-.aside-menu .el-menu-item:hover,
-.aside-menu .el-menu-item.is-active {
-  background: #409eff !important;
-  color: #fff;
-}
-
-.aside-footer {
-  padding: 12px 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.user-info {
+.brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  cursor: pointer;
-  padding: 8px;
-  border-radius: 6px;
-  color: rgba(255, 255, 255, 0.8);
-  transition: background 0.2s;
 }
 
-.user-info:hover {
-  background: rgba(255, 255, 255, 0.1);
+.brand-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.3px;
+}
+
+.topbar-nav {
+  display: flex;
+  gap: 4px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.nav-item:hover {
+  color: var(--text-primary);
+  background: var(--bg-glass);
+}
+
+.nav-item.active {
+  color: var(--primary-light);
+  background: rgba(108, 92, 231, 0.12);
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+}
+
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 4px;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: background 0.2s;
+  color: var(--text-secondary);
+}
+
+.user-chip:hover {
+  background: var(--bg-glass);
+}
+
+.user-avatar {
+  background: var(--gradient-primary) !important;
+  color: #fff !important;
+  font-weight: 600;
+  font-size: 13px;
 }
 
 .user-name {
   font-size: 13px;
-  flex: 1;
+  max-width: 100px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* ===== 顶栏 ===== */
-.header {
-  height: 64px;
-  background: #fff;
-  border-bottom: 1px solid #e8e8e8;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 24px;
-}
-
-.page-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: #303133;
-  margin: 0;
-}
-
 /* ===== 主内容 ===== */
 .main {
-  background: #f0f2f5;
-  padding: 24px;
-  overflow-y: auto;
+  position: relative;
+  z-index: 1;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 32px 60px;
 }
 
-/* ===== 统计卡片 ===== */
-.stats-row {
-  margin-bottom: 24px;
-}
-
-.stat-card {
-  border-radius: 8px;
-}
-
-.stat-card :deep(.el-card__body) {
+/* ===== Hero 区域 ===== */
+.hero {
+  padding: 60px 0 48px;
   display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 20px;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 40px;
 }
 
-.stat-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
+.hero-content {
+  flex: 1;
+}
+
+.hero-title {
+  font-size: 42px;
+  font-weight: 900;
+  line-height: 1.2;
+  color: var(--text-primary);
+  margin: 0 0 16px;
+}
+
+.gradient-text {
+  background: var(--gradient-accent);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.hero-desc {
+  font-size: 16px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+  margin: 0 0 32px;
+  max-width: 520px;
+}
+
+.hero-actions {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  gap: 12px;
+}
+
+.hero-stats {
+  display: flex;
+  gap: 12px;
   flex-shrink: 0;
 }
 
-.stat-value {
+.stat-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 24px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  min-width: 90px;
+}
+
+.stat-num {
   font-size: 28px;
-  font-weight: 700;
-  color: #303133;
-  line-height: 1;
+  font-weight: 800;
+  color: var(--text-primary);
 }
 
 .stat-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ===== 按钮 ===== */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 28px;
+  background: var(--gradient-primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+  font-family: inherit;
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+.btn-glow {
+  box-shadow: 0 0 20px rgba(108, 92, 231, 0.25);
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
   font-size: 13px;
-  color: #909399;
-  margin-top: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
 }
 
-/* ===== 项目表格 ===== */
-.table-card {
-  border-radius: 8px;
+.btn-ghost:hover {
+  color: var(--text-primary);
+  border-color: var(--primary);
+  background: rgba(108, 92, 231, 0.08);
 }
 
-.table-header {
+/* ===== 项目列表 ===== */
+.projects-section {
+  padding-top: 8px;
+}
+
+.section-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-weight: 600;
+  margin-bottom: 24px;
 }
 
-.project-name-cell {
+.section-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+/* ===== 空状态 ===== */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 80px 0;
+}
+
+.empty-icon {
+  margin-bottom: 24px;
+  opacity: 0.8;
+}
+
+.empty-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+}
+
+.empty-desc {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin: 0 0 32px;
+}
+
+/* ===== 项目卡片网格 ===== */
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.project-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.3s;
+  position: relative;
+}
+
+.project-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--primary);
+  box-shadow: 0 8px 30px rgba(108, 92, 231, 0.15);
+}
+
+.card-accent {
+  height: 4px;
+  width: 100%;
+}
+
+.card-body {
+  padding: 20px 20px 16px;
+}
+
+.card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.card-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.4;
+  flex: 1;
+  word-break: break-all;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.card-meta {
+  display: flex;
+  gap: 16px;
+}
+
+.meta-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
-.project-name {
-  font-weight: 500;
-  color: #303133;
+.card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
 }
 
-.step-text {
-  color: #909399;
+.btn-card {
+  padding: 6px 16px;
+  background: rgba(108, 92, 231, 0.1);
+  color: var(--primary-light);
+  border: none;
+  border-radius: var(--radius-sm);
   font-size: 13px;
-}
-
-:deep(.clickable-row) {
+  font-weight: 500;
   cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
 }
 
-:deep(.clickable-row:hover > td) {
-  background: #f5f7fa !important;
+.btn-card:hover {
+  background: rgba(108, 92, 231, 0.2);
 }
 
-/* ===== 下拉菜单 fix ===== */
-.ml-auto {
-  margin-left: auto;
+.btn-card-danger {
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-card-danger:hover {
+  color: #d63031;
+  background: rgba(214, 48, 49, 0.1);
+}
+
+/* ===== 新建卡片 ===== */
+.create-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  border-style: dashed;
+  border-color: var(--border-light);
+  background: transparent;
+}
+
+.create-card:hover {
+  border-color: var(--primary);
+  background: rgba(108, 92, 231, 0.05);
+}
+
+.create-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(108, 92, 231, 0.1);
+  color: var(--primary-light);
+  margin-bottom: 12px;
+}
+
+.create-text {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* ===== 对话框 ===== */
+.dialog-hint {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
 }
 </style>

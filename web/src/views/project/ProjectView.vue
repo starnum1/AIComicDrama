@@ -15,11 +15,11 @@ const projectId = computed(() => route.params.id as string)
 
 const stepNavItems = [
   { name: 'ProjectOverview', label: '概览', icon: 'Document', step: null },
-  { name: 'ProjectEpisodes', label: '分集预览', icon: 'Collection', step: 'analysis' },
+  { name: 'ProjectEpisodes', label: '分集', icon: 'Collection', step: 'analysis' },
   { name: 'ProjectAssets', label: '视觉资产', icon: 'Picture', step: 'asset' },
-  { name: 'ProjectStoryboard', label: '分镜编辑', icon: 'Film', step: 'storyboard' },
-  { name: 'ProjectGeneration', label: '生成监控', icon: 'Loading', step: 'anchor' },
-  { name: 'ProjectPreview', label: '成片预览', icon: 'VideoPlay', step: 'assembly' },
+  { name: 'ProjectStoryboard', label: '分镜', icon: 'Film', step: 'storyboard' },
+  { name: 'ProjectGeneration', label: '生成', icon: 'MagicStick', step: 'anchor' },
+  { name: 'ProjectPreview', label: '成片', icon: 'VideoPlay', step: 'assembly' },
 ]
 
 function isStepAccessible(step: string | null): boolean {
@@ -35,6 +35,16 @@ function navigateTo(item: (typeof stepNavItems)[number]) {
   } else {
     router.push({ name: item.name, params: { id: projectId.value } })
   }
+}
+
+function getStatusColor(status: string) {
+  const map: Record<string, string> = {
+    created: '#a0a0b8', analyzing: '#6c5ce7', assets_generating: '#a29bfe',
+    asset_review: '#fdcb6e', storyboarding: '#00cec9', anchoring: '#74b9ff',
+    video_generating: '#fd79a8', assembling: '#e17055',
+    completed: '#00b894', failed: '#d63031',
+  }
+  return map[status] || '#a0a0b8'
 }
 
 onMounted(async () => {
@@ -59,32 +69,39 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <el-container class="project-container">
-    <!-- 左侧步骤导航 -->
-    <el-aside width="240px" class="sidebar">
-      <div class="sidebar-top">
-        <div class="back-btn" @click="router.push('/')">
+  <div class="project-page">
+    <div class="bg-orb orb-1"></div>
+    <div class="bg-orb orb-2"></div>
+
+    <!-- 顶部导航 -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="back-btn" @click="router.push('/')">
           <el-icon><ArrowLeft /></el-icon>
-          <span>返回项目列表</span>
-        </div>
-        <div class="project-info">
-          <h3 class="project-title">{{ projectStore.projectName }}</h3>
-          <div class="connection-status">
-            <span
-              class="status-dot"
-              :class="connected ? 'online' : 'offline'"
-            ></span>
-            <span class="status-text">{{ connected ? '已连接' : '未连接' }}</span>
-          </div>
+          返回
+        </button>
+        <div class="divider"></div>
+        <h1 class="project-name">{{ projectStore.projectName }}</h1>
+        <div class="status-dot" :style="{ background: getStatusColor(projectStore.status) }"></div>
+        <span class="status-text" :style="{ color: getStatusColor(projectStore.status) }">
+          {{ projectStore.status }}
+        </span>
+      </div>
+      <div class="topbar-right">
+        <div class="connection-chip" :class="connected ? 'online' : 'offline'">
+          <span class="dot"></span>
+          {{ connected ? '已连接' : '未连接' }}
         </div>
       </div>
+    </header>
 
-      <nav class="step-nav">
-        <div class="nav-label">流水线步骤</div>
+    <!-- 步骤导航条 -->
+    <nav class="step-bar">
+      <div class="step-track">
         <div
           v-for="(item, index) in stepNavItems"
           :key="item.name"
-          class="step-item"
+          class="step-tab"
           :class="{
             active: route.name === item.name,
             disabled: !isStepAccessible(item.step),
@@ -92,258 +109,281 @@ onUnmounted(() => {
           }"
           @click="isStepAccessible(item.step) && navigateTo(item)"
         >
-          <div class="step-index" :class="{
-            'completed-index': item.step && projectStore.isStepCompleted(item.step),
-            'active-index': route.name === item.name,
-          }">
-            <el-icon v-if="item.step && projectStore.isStepCompleted(item.step)"><Check /></el-icon>
+          <div class="step-num">
+            <el-icon v-if="item.step && projectStore.isStepCompleted(item.step)" :size="14"><Check /></el-icon>
             <span v-else>{{ index + 1 }}</span>
           </div>
-          <div class="step-label">
-            <span class="step-name">{{ item.label }}</span>
-          </div>
+          <span class="step-label">{{ item.label }}</span>
         </div>
-      </nav>
+      </div>
+    </nav>
 
-      <!-- 进度信息 -->
-      <div v-if="projectStore.progress" class="progress-section">
-        <div class="progress-label">{{ projectStore.progress.message }}</div>
+    <!-- 进度条 (如果有) -->
+    <div v-if="projectStore.progress" class="progress-strip">
+      <div class="progress-inner">
+        <span class="progress-msg">{{ projectStore.progress.message }}</span>
         <el-progress
-          :percentage="
-            projectStore.progress.total > 0
-              ? Math.round((projectStore.progress.completed / projectStore.progress.total) * 100)
-              : 0
-          "
-          :stroke-width="6"
+          :percentage="projectStore.progress.total > 0 ? Math.round((projectStore.progress.completed / projectStore.progress.total) * 100) : 0"
+          :stroke-width="4"
           :show-text="true"
+          color="#6c5ce7"
+          style="flex:1; max-width: 300px"
         />
       </div>
+    </div>
 
-      <!-- 错误信息 -->
-      <div v-if="projectStore.error" class="error-section">
-        <el-alert
-          :title="projectStore.error"
-          type="error"
-          show-icon
-          :closable="true"
-          @close="projectStore.setError('')"
-        />
-      </div>
-    </el-aside>
+    <!-- 错误提示 -->
+    <div v-if="projectStore.error" class="error-strip">
+      <el-alert :title="projectStore.error" type="error" show-icon :closable="true" @close="projectStore.setError('')" />
+    </div>
 
-    <!-- 右侧内容区 -->
-    <el-container>
-      <el-header class="content-header">
-        <h2 class="content-title">
-          {{ stepNavItems.find(s => s.name === route.name)?.label || '项目详情' }}
-        </h2>
-        <div class="content-actions">
-          <el-tag
-            :type="projectStore.status === 'completed' ? 'success' : projectStore.status === 'failed' ? 'danger' : 'primary'"
-            effect="light"
-            size="default"
-          >
-            {{ projectStore.status }}
-          </el-tag>
-        </div>
-      </el-header>
-
-      <el-main class="content-main">
-        <RouterView />
-      </el-main>
-    </el-container>
-  </el-container>
+    <!-- 内容区 -->
+    <main class="content">
+      <RouterView />
+    </main>
+  </div>
 </template>
 
 <style scoped>
-.project-container {
+.project-page {
   height: 100vh;
   width: 100vw;
-  overflow: hidden;
-}
-
-/* ===== 左侧导航 ===== */
-.sidebar {
-  background: #fff;
-  border-right: 1px solid #e8e8e8;
   display: flex;
   flex-direction: column;
+  background: var(--bg-deep);
+  position: relative;
   overflow: hidden;
 }
 
-.sidebar-top {
-  padding: 0;
-  border-bottom: 1px solid #f0f0f0;
+.bg-orb {
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.orb-1 {
+  width: 500px;
+  height: 500px;
+  background: rgba(108, 92, 231, 0.08);
+  top: -200px;
+  right: -100px;
+}
+
+.orb-2 {
+  width: 300px;
+  height: 300px;
+  background: rgba(0, 206, 201, 0.06);
+  bottom: -100px;
+  left: -50px;
+}
+
+/* 顶栏 */
+.topbar {
+  position: relative;
+  z-index: 10;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  background: rgba(10, 10, 26, 0.85);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .back-btn {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 16px 20px;
-  cursor: pointer;
-  color: #606266;
+  gap: 4px;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
   font-size: 13px;
-  transition: color 0.2s;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
 }
 
 .back-btn:hover {
-  color: #409eff;
+  color: var(--primary-light);
+  border-color: var(--primary);
 }
 
-.project-info {
-  padding: 0 20px 16px;
+.divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
 }
 
-.project-title {
-  margin: 0 0 8px;
+.project-name {
   font-size: 16px;
   font-weight: 600;
-  color: #303133;
-  word-break: break-all;
-  line-height: 1.4;
-}
-
-.connection-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  color: var(--text-primary);
+  margin: 0;
 }
 
 .status-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-}
-
-.status-dot.online {
-  background: #67c23a;
-  box-shadow: 0 0 6px rgba(103, 194, 58, 0.4);
-}
-
-.status-dot.offline {
-  background: #c0c4cc;
+  flex-shrink: 0;
 }
 
 .status-text {
   font-size: 12px;
-  color: #909399;
+  font-weight: 500;
 }
 
-/* ===== 步骤导航 ===== */
-.step-nav {
-  flex: 1;
-  padding: 16px 0;
-  overflow-y: auto;
-}
-
-.nav-label {
-  padding: 0 20px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #909399;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.step-item {
+.connection-chip {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 20px;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.connection-chip.online {
+  background: rgba(0, 184, 148, 0.1);
+  color: #00b894;
+}
+
+.connection-chip.offline {
+  background: rgba(160, 160, 184, 0.1);
+  color: #a0a0b8;
+}
+
+.connection-chip .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* 步骤导航条 */
+.step-bar {
+  position: relative;
+  z-index: 10;
+  background: rgba(15, 15, 35, 0.9);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  padding: 0 24px;
+}
+
+.step-track {
+  display: flex;
+  gap: 4px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.step-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 18px;
   cursor: pointer;
+  border-bottom: 2px solid transparent;
   transition: all 0.2s;
+  white-space: nowrap;
 }
 
-.step-item:hover:not(.disabled) {
-  background: #f5f7fa;
+.step-tab:hover:not(.disabled) {
+  border-bottom-color: rgba(108, 92, 231, 0.3);
 }
 
-.step-item.active {
-  background: #ecf5ff;
+.step-tab.active {
+  border-bottom-color: var(--primary);
 }
 
-.step-item.disabled {
+.step-tab.disabled {
   cursor: not-allowed;
-  opacity: 0.45;
+  opacity: 0.35;
 }
 
-.step-index {
-  width: 28px;
-  height: 28px;
+.step-num {
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
-  font-weight: 600;
-  background: #f0f2f5;
-  color: #909399;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--bg-surface);
+  color: var(--text-muted);
+}
+
+.step-tab.active .step-num {
+  background: var(--primary);
+  color: #fff;
+}
+
+.step-tab.completed .step-num {
+  background: #00b894;
+  color: #fff;
+}
+
+.step-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.step-tab.active .step-label {
+  color: var(--primary-light);
+}
+
+/* 进度条和错误 */
+.progress-strip {
+  background: rgba(108, 92, 231, 0.06);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 24px;
   flex-shrink: 0;
-  transition: all 0.2s;
+  z-index: 10;
+  position: relative;
 }
 
-.step-index.active-index {
-  background: #409eff;
-  color: #fff;
-}
-
-.step-index.completed-index {
-  background: #67c23a;
-  color: #fff;
-}
-
-.step-name {
-  font-size: 14px;
-  color: #303133;
-}
-
-.step-item.active .step-name {
-  font-weight: 600;
-  color: #409eff;
-}
-
-.step-item.disabled .step-name {
-  color: #c0c4cc;
-}
-
-/* ===== 进度和错误 ===== */
-.progress-section {
-  padding: 16px 20px;
-  border-top: 1px solid #f0f0f0;
-}
-
-.progress-label {
-  font-size: 12px;
-  color: #909399;
-  margin-bottom: 8px;
-}
-
-.error-section {
-  padding: 8px 16px 16px;
-}
-
-/* ===== 右侧内容 ===== */
-.content-header {
-  height: 64px;
-  background: #fff;
-  border-bottom: 1px solid #e8e8e8;
+.progress-inner {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 24px;
+  gap: 16px;
+  max-width: 800px;
+  margin: 0 auto;
 }
 
-.content-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: #303133;
-  margin: 0;
+.progress-msg {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 
-.content-main {
-  background: #f0f2f5;
-  padding: 24px;
+.error-strip {
+  padding: 8px 24px;
+  flex-shrink: 0;
+  z-index: 10;
+  position: relative;
+}
+
+/* 内容区 */
+.content {
+  flex: 1;
   overflow-y: auto;
+  padding: 24px;
+  position: relative;
+  z-index: 1;
 }
 </style>
