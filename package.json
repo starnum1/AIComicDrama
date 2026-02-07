@@ -1,0 +1,23 @@
+{
+  "name": "aicomic-drama",
+  "private": true,
+  "scripts": {
+    "dev:server": "pnpm --filter server run start:dev",
+    "dev:web": "pnpm --filter web run dev",
+    "dev": "pnpm run dev:server & pnpm run dev:web",
+    "build:shared": "pnpm --filter @aicomic/shared run build",
+    "db:migrate": "pnpm --filter server exec prisma migrate dev",
+    "db:generate": "pnpm --filter server exec prisma generate"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "@prisma/engines",
+      "esbuild",
+      "msgpackr-extract",
+      "prisma",
+      "sharp",
+      "unrs-resolver"
+    ]
+  }
+}

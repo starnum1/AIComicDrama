@@ -1,0 +1,266 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== 用户系统 ====================
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  password      String
+  nickname      String?
+  balance       Decimal   @default(0) @db.Decimal(10, 2)  // 账户余额（元）
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  projects      Project[]
+  billingRecords BillingRecord[]
+}
+
+model BillingRecord {
+  id            String    @id @default(uuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  type          String    // recharge=充值, consume=消费
+  amount        Decimal   @db.Decimal(10, 4)
+  description   String?
+  relatedTaskId String?   // 关联的任务ID
+  createdAt     DateTime  @default(now())
+}
+
+// ==================== 项目 ====================
+
+model Project {
+  id            String    @id @default(uuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  name          String
+  status        String    @default("created")
+  // created → analyzing → assets_generating → storyboarding →
+  // anchoring → video_generating → assembling → completed → failed
+  currentStep   String    @default("created")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  novel         Novel?
+  characters    Character[]
+  scenes        Scene[]
+  episodes      Episode[]
+  tasks         Task[]
+}
+
+// ==================== Step0: 小说 ====================
+
+model Novel {
+  id            String    @id @default(uuid())
+  projectId     String    @unique
+  project       Project   @relation(fields: [projectId], references: [id])
+  originalText  String    // 原始小说全文
+  charCount     Int       // 字数
+  createdAt     DateTime  @default(now())
+}
+
+// ==================== Step1: 分析结果 ====================
+
+model Character {
+  id              String    @id @default(uuid())
+  projectId       String
+  project         Project   @relation(fields: [projectId], references: [id])
+  name            String    // 角色名称（中文）
+  description     String    // 角色描述（中文）
+  visualPrompt    String    // 英文视觉描述（用于图片生成prompt）
+  visualNegative  String    // 负面提示词
+  voiceDesc       String?   // 声音描述（预留）
+  states          Json?     // 状态变体 {"alive": "...", "ghost": "..."}
+  episodeIds      Json      // 出现的集数 [1, 2, 3]
+  sortOrder       Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  sheets          CharacterSheet[]
+  images          CharacterImage[]
+  shots           ShotCharacter[]
+}
+
+model Scene {
+  id              String    @id @default(uuid())
+  projectId       String
+  project         Project   @relation(fields: [projectId], references: [id])
+  name            String    // 场景名称（中文）
+  description     String    // 场景描述（中文）
+  visualPrompt    String    // 英文视觉描述
+  visualNegative  String    // 负面提示词
+  variants        Json?     // 氛围变体 {"day": "...", "night": "...", "storm": "..."}
+  episodeIds      Json      // 出现的集数
+  sortOrder       Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  images          SceneImage[]
+  shots           Shot[]
+}
+
+// ==================== Step1: 分集 ====================
+
+model Episode {
+  id              String    @id @default(uuid())
+  projectId       String
+  project         Project   @relation(fields: [projectId], references: [id])
+  episodeNumber   Int       // 第几集
+  title           String    // 集标题
+  summary         String    // 剧情摘要
+  originalText    String    // 对应的原文段落
+  characterIds    Json      // 涉及的角色ID列表
+  sceneIds        Json      // 涉及的场景ID列表
+  emotionCurve    String?   // 情感曲线描述
+  endingHook      String?   // 结尾悬念
+  sortOrder       Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  shots           Shot[]
+  finalVideo      FinalVideo?
+}
+
+// ==================== Step2: 视觉资产 ====================
+
+// 角色设定图（9宫格 Character Sheet）
+model CharacterSheet {
+  id              String    @id @default(uuid())
+  characterId     String
+  character       Character @relation(fields: [characterId], references: [id])
+  imageUrl        String    // 完整设定图（9宫格）的存储路径
+  stateName       String?   // 对应的状态名（如"ghost"），null表示默认状态
+  gridSpec        String    @default("3x3")  // 网格规格（预留，当前固定3x3）
+  createdAt       DateTime  @default(now())
+
+  croppedImages   CharacterImage[]
+}
+
+// 用户从设定图中裁剪出的单张角色图
+model CharacterImage {
+  id              String    @id @default(uuid())
+  characterId     String
+  character       Character @relation(fields: [characterId], references: [id])
+  sheetId         String?   // 来源设定图ID（用户上传的图片此字段为null）
+  sheet           CharacterSheet? @relation(fields: [sheetId], references: [id])
+  imageType       String    // front=正面, side=侧面, expression_happy=喜, back=背面...
+  imageUrl        String    // 裁剪后的单张图片存储路径
+  cropRegion      Json?     // 裁剪区域 {x, y, width, height}（相对于原图的像素坐标）
+  stateName       String?   // 对应的状态名（如"ghost"），null表示默认状态
+  createdAt       DateTime  @default(now())
+}
+
+model SceneImage {
+  id              String    @id @default(uuid())
+  sceneId         String
+  scene           Scene     @relation(fields: [sceneId], references: [id])
+  variant         String    @default("default") // default/day/night/storm...
+  imageUrl        String
+  createdAt       DateTime  @default(now())
+}
+
+// ==================== Step3: 分镜 ====================
+
+model Shot {
+  id                String    @id @default(uuid())
+  episodeId         String
+  episode           Episode   @relation(fields: [episodeId], references: [id])
+  sceneId           String
+  scene             Scene     @relation(fields: [sceneId], references: [id])
+  shotNumber        Int       // 镜头序号
+  duration          Int       // 时长（秒，4-12）
+  shotType          String    // wide/medium/close_up/extreme_close_up
+  cameraMovement    String    // static/push_in/pull_out/pan_left/pan_right/tilt_up/tilt_down
+  imagePrompt       String    // 完整英文画面描述
+  imageNegative     String    // 负面提示词
+  videoMotion       String    // 视频运动描述（英文）
+  sceneVariant      String    @default("default") // 使用场景的哪个氛围变体
+  dialogue          Json?     // 对话 [{speaker, text, emotion}]
+  narration         Json?     // 旁白 {text, emotion}
+  sfx               Json?     // 音效标签 ["rain", "thunder"]
+  transitionIn      String    @default("cut")
+  transitionOut     String    @default("cut")
+  continuityStrength String   @default("medium") // strong/medium/weak
+  sortOrder         Int       @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  characters        ShotCharacter[]
+  images            ShotImage[]
+  video             ShotVideo?
+}
+
+// 镜头-角色关联表
+model ShotCharacter {
+  id              String    @id @default(uuid())
+  shotId          String
+  shot            Shot      @relation(fields: [shotId], references: [id])
+  characterId     String
+  character       Character @relation(fields: [characterId], references: [id])
+  characterState  String?   // 角色在此镜头的状态（如"ghost"）
+
+  @@unique([shotId, characterId])
+}
+
+// ==================== Step4: 视觉锚点 ====================
+
+model ShotImage {
+  id              String    @id @default(uuid())
+  shotId          String
+  shot            Shot      @relation(fields: [shotId], references: [id])
+  imageType       String    // first_frame/last_frame/key_frame
+  imageUrl        String
+  createdAt       DateTime  @default(now())
+}
+
+// ==================== Step5: 视频 ====================
+
+model ShotVideo {
+  id              String    @id @default(uuid())
+  shotId          String    @unique
+  shot            Shot      @relation(fields: [shotId], references: [id])
+  videoUrl        String
+  actualDuration  Float?    // 实际生成时长
+  createdAt       DateTime  @default(now())
+}
+
+// ==================== Step6: 成片 ====================
+
+model FinalVideo {
+  id              String    @id @default(uuid())
+  episodeId       String    @unique
+  episode         Episode   @relation(fields: [episodeId], references: [id])
+  videoUrl        String
+  duration        Float?
+  createdAt       DateTime  @default(now())
+}
+
+// ==================== 任务管理 ====================
+
+model Task {
+  id              String    @id @default(uuid())
+  projectId       String
+  project         Project   @relation(fields: [projectId], references: [id])
+  step            String    // analysis/asset/storyboard/anchor/video/assembly
+  entityType      String?   // character/scene/episode/shot 等
+  entityId        String?   // 关联的实体ID
+  status          String    @default("pending")
+  // pending → running → success / failed / retrying
+  retryCount      Int       @default(0)
+  maxRetries      Int       @default(3)
+  errorMessage    String?
+  cost            Decimal?  @db.Decimal(10, 4) // 本次任务花费
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([projectId, step])
+  @@index([status])
+}
