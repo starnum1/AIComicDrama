@@ -1,7 +1,4 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.ContinuityStrength = exports.TransitionType = exports.CameraMovement = exports.ShotType = void 0;
-var ShotType;
+export var ShotType;
 (function (ShotType) {
     ShotType["Wide"] = "wide";
     ShotType["Medium"] = "medium";
@@ -11,8 +8,8 @@ var ShotType;
     ShotType["LowAngle"] = "low_angle";
     ShotType["HighAngle"] = "high_angle";
     ShotType["POV"] = "pov";
-})(ShotType || (exports.ShotType = ShotType = {}));
-var CameraMovement;
+})(ShotType || (ShotType = {}));
+export var CameraMovement;
 (function (CameraMovement) {
     CameraMovement["Static"] = "static";
     CameraMovement["PushIn"] = "push_in";
@@ -23,19 +20,19 @@ var CameraMovement;
     CameraMovement["TiltDown"] = "tilt_down";
     CameraMovement["Follow"] = "follow";
     CameraMovement["Handheld"] = "handheld";
-})(CameraMovement || (exports.CameraMovement = CameraMovement = {}));
-var TransitionType;
+})(CameraMovement || (CameraMovement = {}));
+export var TransitionType;
 (function (TransitionType) {
     TransitionType["Cut"] = "cut";
     TransitionType["Dissolve"] = "dissolve";
     TransitionType["FadeIn"] = "fade_in";
     TransitionType["FadeOut"] = "fade_out";
     TransitionType["SmashCut"] = "smash_cut";
-})(TransitionType || (exports.TransitionType = TransitionType = {}));
-var ContinuityStrength;
+})(TransitionType || (TransitionType = {}));
+export var ContinuityStrength;
 (function (ContinuityStrength) {
     ContinuityStrength["Strong"] = "strong";
     ContinuityStrength["Medium"] = "medium";
     ContinuityStrength["Weak"] = "weak";
-})(ContinuityStrength || (exports.ContinuityStrength = ContinuityStrength = {}));
+})(ContinuityStrength || (ContinuityStrength = {}));
 //# sourceMappingURL=shot-type.js.map

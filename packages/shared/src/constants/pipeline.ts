@@ -1,4 +1,4 @@
-import type { PipelineStep } from '../types/pipeline';
+import type { PipelineStep } from '../types/pipeline.js';
 
 /** 流水线步骤顺序 */
 export const PIPELINE_STEP_ORDER: PipelineStep[] = [

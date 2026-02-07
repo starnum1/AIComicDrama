@@ -10,5 +10,5 @@ export declare enum ProjectStatus {
     Completed = "completed",
     Failed = "failed"
 }
-export { TaskStatus } from './task-status';
+export { TaskStatus } from './task-status.js';
 //# sourceMappingURL=project-status.d.ts.map

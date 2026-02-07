@@ -6,5 +6,5 @@ export interface ProjectVO {
     createdAt: string;
     updatedAt: string;
 }
-export type { EpisodeVO } from './episode';
+export type { EpisodeVO } from './episode.js';
 //# sourceMappingURL=project.d.ts.map

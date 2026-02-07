@@ -12,4 +12,4 @@ export enum ProjectStatus {
 }
 
 // TaskStatus 已迁移到 task-status.ts，此处重导出以保持向后兼容
-export { TaskStatus } from './task-status';
+export { TaskStatus } from './task-status.js';

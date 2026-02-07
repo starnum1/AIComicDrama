@@ -1,4 +1,4 @@
-import type { ShotVO } from './shot';
+import type { ShotVO } from './shot.js';
 export interface EpisodeVO {
     id: string;
     episodeNumber: number;

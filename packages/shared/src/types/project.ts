@@ -8,4 +8,4 @@ export interface ProjectVO {
 }
 
 // EpisodeVO 已迁移到 episode.ts，此处重导出以保持向后兼容
-export type { EpisodeVO } from './episode';
+export type { EpisodeVO } from './episode.js';

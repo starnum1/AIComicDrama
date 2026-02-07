@@ -1,4 +1,4 @@
-import { ShotType, CameraMovement, TransitionType, ContinuityStrength } from '../enums/shot-type';
+import { ShotType, CameraMovement, TransitionType, ContinuityStrength } from '../enums/shot-type.js';
 
 /** 镜头类型中文映射 */
 export const SHOT_TYPE_LABELS: Record<ShotType, string> = {

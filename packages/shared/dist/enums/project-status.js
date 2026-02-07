@@ -1,7 +1,4 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.TaskStatus = exports.ProjectStatus = void 0;
-var ProjectStatus;
+export var ProjectStatus;
 (function (ProjectStatus) {
     ProjectStatus["Created"] = "created";
     ProjectStatus["Analyzing"] = "analyzing";
@@ -13,8 +10,7 @@ var ProjectStatus;
     ProjectStatus["Assembling"] = "assembling";
     ProjectStatus["Completed"] = "completed";
     ProjectStatus["Failed"] = "failed";
-})(ProjectStatus || (exports.ProjectStatus = ProjectStatus = {}));
+})(ProjectStatus || (ProjectStatus = {}));
 // TaskStatus 已迁移到 task-status.ts，此处重导出以保持向后兼容
-var task_status_1 = require("./task-status");
-Object.defineProperty(exports, "TaskStatus", { enumerable: true, get: function () { return task_status_1.TaskStatus; } });
+export { TaskStatus } from './task-status.js';
 //# sourceMappingURL=project-status.js.map

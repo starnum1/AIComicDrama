@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
 import { CommonModule } from './common/common.module';
 import { ProvidersModule } from './providers/providers.module';
 import { PipelineModule } from './pipeline/pipeline.module';
+import { AuthModule } from './auth/auth.module';
+import { ProjectsModule } from './projects/projects.module';
+import { BillingModule } from './billing/billing.module';
 
 @Module({
   imports: [
@@ -31,8 +32,11 @@ import { PipelineModule } from './pipeline/pipeline.module';
 
     // 流水线模块（编排器 + 处理器 + 所有步骤服务）
     PipelineModule,
+
+    // 业务模块
+    AuthModule,
+    ProjectsModule,
+    BillingModule,
   ],
-  controllers: [AppController],
-  providers: [AppService],
 })
 export class AppModule {}
