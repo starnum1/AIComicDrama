@@ -4,22 +4,22 @@ export declare class ProjectsController {
     constructor(projectsService: ProjectsService);
     listProjects(req: any): Promise<{
         id: string;
+        createdAt: Date;
+        updatedAt: Date;
         name: string;
         status: string;
         currentStep: string;
-        createdAt: Date;
-        updatedAt: Date;
     }[]>;
     createProject(req: any, body: {
         name: string;
     }): Promise<{
         id: string;
-        userId: string;
-        name: string;
-        status: string;
-        currentStep: string;
         createdAt: Date;
         updatedAt: Date;
+        name: string;
+        userId: string;
+        status: string;
+        currentStep: string;
         llmProviderId: string | null;
         imageProviderId: string | null;
         videoProviderId: string | null;
@@ -38,12 +38,12 @@ export declare class ProjectsController {
         };
     } & {
         id: string;
-        userId: string;
-        name: string;
-        status: string;
-        currentStep: string;
         createdAt: Date;
         updatedAt: Date;
+        name: string;
+        userId: string;
+        status: string;
+        currentStep: string;
         llmProviderId: string | null;
         imageProviderId: string | null;
         videoProviderId: string | null;
@@ -91,26 +91,26 @@ export declare class ProjectsController {
         sheets: {
             id: string;
             createdAt: Date;
-            characterId: string;
             imageUrl: string;
             stateName: string | null;
             gridSpec: string;
+            characterId: string;
         }[];
         images: {
             id: string;
             createdAt: Date;
-            characterId: string;
             imageUrl: string;
             stateName: string | null;
-            sheetId: string | null;
+            characterId: string;
             imageType: string;
             cropRegion: import("@prisma/client/runtime/client").JsonValue | null;
+            sheetId: string | null;
         }[];
     } & {
         id: string;
-        name: string;
         createdAt: Date;
         updatedAt: Date;
+        name: string;
         projectId: string;
         description: string;
         visualPrompt: string;
@@ -130,35 +130,35 @@ export declare class ProjectsController {
     }): Promise<{
         id: string;
         createdAt: Date;
-        characterId: string;
         imageUrl: string;
         stateName: string | null;
-        sheetId: string | null;
+        characterId: string;
         imageType: string;
         cropRegion: import("@prisma/client/runtime/client").JsonValue | null;
+        sheetId: string | null;
     }>;
     deleteCharacterImage(req: any, id: string): Promise<{
         success: boolean;
     }>;
     getEpisodes(req: any, id: string): Promise<({
-        _count: {
-            shots: number;
-        };
         finalVideo: {
             id: string;
             videoUrl: string;
             duration: number | null;
         } | null;
+        _count: {
+            shots: number;
+        };
     } & {
         id: string;
         createdAt: Date;
         updatedAt: Date;
         projectId: string;
-        originalText: string;
         sortOrder: number;
         episodeNumber: number;
         title: string;
         summary: string;
+        originalText: string;
         characterIds: import("@prisma/client/runtime/client").JsonValue;
         sceneIds: import("@prisma/client/runtime/client").JsonValue;
         emotionCurve: string | null;
@@ -172,11 +172,11 @@ export declare class ProjectsController {
         createdAt: Date;
         updatedAt: Date;
         projectId: string;
-        originalText: string;
         sortOrder: number;
         episodeNumber: number;
         title: string;
         summary: string;
+        originalText: string;
         characterIds: import("@prisma/client/runtime/client").JsonValue;
         sceneIds: import("@prisma/client/runtime/client").JsonValue;
         emotionCurve: string | null;
@@ -186,26 +186,26 @@ export declare class ProjectsController {
         sheets: {
             id: string;
             createdAt: Date;
-            characterId: string;
             imageUrl: string;
             stateName: string | null;
             gridSpec: string;
+            characterId: string;
         }[];
         images: {
             id: string;
             createdAt: Date;
-            characterId: string;
             imageUrl: string;
             stateName: string | null;
-            sheetId: string | null;
+            characterId: string;
             imageType: string;
             cropRegion: import("@prisma/client/runtime/client").JsonValue | null;
+            sheetId: string | null;
         }[];
     } & {
         id: string;
-        name: string;
         createdAt: Date;
         updatedAt: Date;
+        name: string;
         projectId: string;
         description: string;
         visualPrompt: string;
@@ -220,14 +220,14 @@ export declare class ProjectsController {
             id: string;
             createdAt: Date;
             imageUrl: string;
-            sceneId: string;
             variant: string;
+            sceneId: string;
         }[];
     } & {
         id: string;
-        name: string;
         createdAt: Date;
         updatedAt: Date;
+        name: string;
         projectId: string;
         description: string;
         visualPrompt: string;
@@ -237,12 +237,16 @@ export declare class ProjectsController {
         variants: import("@prisma/client/runtime/client").JsonValue | null;
     })[]>;
     getShots(req: any, id: string): Promise<({
+        scene: {
+            id: string;
+            name: string;
+        };
         characters: ({
             character: {
                 id: string;
-                name: string;
                 createdAt: Date;
                 updatedAt: Date;
+                name: string;
                 projectId: string;
                 description: string;
                 visualPrompt: string;
@@ -255,8 +259,8 @@ export declare class ProjectsController {
         } & {
             id: string;
             characterId: string;
-            shotId: string;
             characterState: string | null;
+            shotId: string;
         })[];
         images: {
             id: string;
@@ -265,10 +269,6 @@ export declare class ProjectsController {
             imageType: string;
             shotId: string;
         }[];
-        scene: {
-            id: string;
-            name: string;
-        };
         video: {
             id: string;
             createdAt: Date;
@@ -281,10 +281,9 @@ export declare class ProjectsController {
         createdAt: Date;
         updatedAt: Date;
         sortOrder: number;
-        episodeId: string;
-        duration: number;
         sceneId: string;
         shotNumber: number;
+        duration: number;
         shotType: string;
         cameraMovement: string;
         imagePrompt: string;
@@ -297,6 +296,7 @@ export declare class ProjectsController {
         transitionIn: string;
         transitionOut: string;
         continuityStrength: string;
+        episodeId: string;
     })[]>;
     updateShot(req: any, id: string, body: {
         imagePrompt?: string;
@@ -308,10 +308,9 @@ export declare class ProjectsController {
         createdAt: Date;
         updatedAt: Date;
         sortOrder: number;
-        episodeId: string;
-        duration: number;
         sceneId: string;
         shotNumber: number;
+        duration: number;
         shotType: string;
         cameraMovement: string;
         imagePrompt: string;
@@ -324,12 +323,13 @@ export declare class ProjectsController {
         transitionIn: string;
         transitionOut: string;
         continuityStrength: string;
+        episodeId: string;
     }>;
     getFinalVideo(req: any, id: string): Promise<{
         id: string;
         createdAt: Date;
-        episodeId: string;
         videoUrl: string;
         duration: number | null;
+        episodeId: string;
     }>;
 }

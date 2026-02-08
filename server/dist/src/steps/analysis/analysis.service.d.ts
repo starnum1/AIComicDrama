@@ -12,6 +12,5 @@ export declare class AnalysisService {
     private buildExtractSystemPrompt;
     private buildEpisodeSystemPrompt;
     private buildEpisodeUserPrompt;
-    private extractOriginalText;
-    private fuzzyIndexOf;
+    private validateEpisodeRanges;
 }

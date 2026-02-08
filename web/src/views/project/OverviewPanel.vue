@@ -67,6 +67,15 @@ const canStart = computed(() => {
   return novelUploaded.value && (!status || allowedStatuses.includes(status))
 })
 
+/** 清理文本：去除空白行、每行 trim */
+function cleanNovelText(raw: string): string {
+  return raw
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0)
+    .join('\n')
+}
+
 async function uploadNovel() {
   if (!novelText.value.trim()) {
     ElMessage.warning('请输入小说文本')
@@ -75,14 +84,18 @@ async function uploadNovel() {
 
   uploading.value = true
   try {
+    // 上传前清理文本：去除空白行、去除每行首尾空白
+    const cleanedText = cleanNovelText(novelText.value)
+    novelText.value = cleanedText
+
     const token = localStorage.getItem('token')
     await axios.post(
       `/api/projects/${projectId.value}/novel`,
-      { text: novelText.value },
+      { text: cleanedText },
       { headers: { Authorization: `Bearer ${token}` } },
     )
     novelUploaded.value = true
-    ElMessage.success(`小说上传成功（${novelText.value.length} 字）`)
+    ElMessage.success(`小说上传成功（${cleanedText.length} 字，${cleanedText.split('\n').length} 行）`)
   } catch (err: any) {
     ElMessage.error(err.response?.data?.message || '上传失败')
   } finally {

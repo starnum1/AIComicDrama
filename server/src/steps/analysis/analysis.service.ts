@@ -23,15 +23,14 @@ interface ExtractResult {
   }[];
 }
 
-// Phase 2 输出：分集规划
-// 不再要求 LLM 复制完整原文，改为输出起止标记（原文前20字+后20字），由代码截取
+// Phase 2 输出：分集规划（行号区间法）
 interface EpisodePlanResult {
   episodes: {
     episode_number: number;
     title: string;
     summary: string;
-    text_start_marker: string;
-    text_end_marker: string;
+    line_start: number;
+    line_end: number;
     character_names: string[];
     scene_names: string[];
     emotion_curve: string;
@@ -121,8 +120,18 @@ export class AnalysisService {
       `Project ${projectId} - Phase 1 完成：${extractResult.characters.length}个角色，${extractResult.scenes.length}个场景`,
     );
 
-    // ========== Phase 2：分集规划 ==========
+    // ========== Phase 2：分集规划（行号区间法） ==========
     this.logger.log(`Project ${projectId} - Phase 2: 分集规划`);
+
+    // 将原文按行拆分（前端上传时已清理空白行）
+    const lines = novel.originalText.split('\n').filter((l) => l.trim().length > 0);
+    const totalLines = lines.length;
+    const totalChars = lines.reduce((sum, l) => sum + l.length, 0);
+
+    this.logger.log(`Project ${projectId} - 原文共 ${totalLines} 行，${totalChars} 字`);
+
+    // 构建带行号的文本供 LLM 分析
+    const numberedText = lines.map((line, i) => `[${i + 1}] ${line}`).join('\n');
 
     // 将已确定的角色/场景名称列表传入，确保分集时引用一致
     const characterNames = extractResult.characters.map((c) => c.name);
@@ -130,29 +139,33 @@ export class AnalysisService {
 
     const { data: episodeResult } = await this.llm.chatJSON<EpisodePlanResult>(
       [
-        { role: 'system', content: this.buildEpisodeSystemPrompt() },
+        { role: 'system', content: this.buildEpisodeSystemPrompt(totalLines, totalChars) },
         {
           role: 'user',
-          content: this.buildEpisodeUserPrompt(novel.originalText, characterNames, sceneNames),
+          content: this.buildEpisodeUserPrompt(numberedText, characterNames, sceneNames),
         },
       ],
       {
-        temperature: 0.7,
+        temperature: 0.5,
         maxTokens: 8000,
       },
       aiConfigs?.llm,
     );
 
+    // 校验并修复行号区间
+    const validatedEpisodes = this.validateEpisodeRanges(episodeResult.episodes, totalLines);
+
     // 存储分集，并回填角色/场景的 episodeIds
     const characterEpisodes = new Map<string, number[]>(); // characterId → episodeNumbers
     const sceneEpisodes = new Map<string, number[]>(); // sceneId → episodeNumbers
 
-    for (const ep of episodeResult.episodes) {
-      // 根据起止标记从原文中截取对应段落
-      const originalText = this.extractOriginalText(
-        novel.originalText,
-        ep.text_start_marker,
-        ep.text_end_marker,
+    for (const ep of validatedEpisodes) {
+      // 根据行号区间截取原文（行号从 1 开始）
+      const originalText = lines.slice(ep.line_start - 1, ep.line_end).join('\n');
+      const epCharCount = originalText.length;
+
+      this.logger.log(
+        `Project ${projectId} - 第${ep.episode_number}集：行 ${ep.line_start}-${ep.line_end}，${epCharCount} 字`,
       );
 
       const characterIds = ep.character_names
@@ -205,7 +218,7 @@ export class AnalysisService {
     }
 
     this.logger.log(
-      `Project ${projectId} - Phase 2 完成：${episodeResult.episodes.length}集`,
+      `Project ${projectId} - Phase 2 完成：${validatedEpisodes.length}集`,
     );
   }
 
@@ -259,30 +272,36 @@ export class AnalysisService {
 }`;
   }
 
-  // ==================== Phase 2 提示词：分集规划 ====================
+  // ==================== Phase 2 提示词：分集规划（行号区间法） ====================
 
-  private buildEpisodeSystemPrompt(): string {
-    return `你是一位专业的短剧编剧。你的任务是将一篇短篇小说拆分为多集短剧。
+  private buildEpisodeSystemPrompt(totalLines: number, totalChars: number): string {
+    // 按每集约 2000 字估算集数（2 分钟短剧大约对应 2000 字原文）
+    const estimatedEpisodes = Math.max(2, Math.ceil(totalChars / 2000));
 
-## 分集规划要求
+    return `你是一位专业的短剧编剧和分集策划师。你的任务是将一篇带行号标记的短篇小说拆分为多集短剧。
 
-- 每集适合制作2-3分钟的短剧视频
-- 每集必须有独立的起承转合
-- 每集结尾必须有悬念钩子，吸引观众看下一集
-- 短剧第一集的开头必须在5秒内抓住观众注意力
-- 保持原著的叙事风格和情感基调
-- 每集对应的原文字数差异不超过30%，保持篇幅均衡
+## 小说基本信息
 
-## 原文定位规则（重要）
+- 总行数：${totalLines} 行
+- 总字数：约 ${totalChars} 字
+- 建议分集数量：${estimatedEpisodes} 集左右（可根据剧情需要微调 ±1 集）
 
-- 不要复制原文内容到输出中
-- 使用 text_start_marker 和 text_end_marker 标记每集对应的原文范围
-- text_start_marker：该集原文**起始位置**的前20个字（从原文中精确复制）
-- text_end_marker：该集原文**结束位置**的后20个字（从原文中精确复制）
-- 每集的结束标记 = 下一集的起始标记（不要留空隙，也不要重叠）
-- 第一集的 text_start_marker 必须是小说开头的前20个字
-- 最后一集的 text_end_marker 必须是小说结尾的后20个字
-- 标记文本必须与原文完全一致（包括标点符号），不要做任何修改
+## 分集核心原则
+
+1. **节奏把控**：每集对应约 2 分钟短剧视频（约 1500-2500 字原文），各集字数应大致均衡，偏差不超过 30%
+2. **独立完整**：每集必须有清晰的开端、发展、高潮/转折
+3. **钩子设计**：每集结尾必须留悬念或情感钩子，让观众想看下一集
+4. **第一集开场**：第一集的前 3 行内容必须能在 5 秒内抓住观众（冲突/悬念/强情绪）
+5. **自然断点**：在场景转换、时间跳跃、情节转折处断集，不要在一句话中间断开
+
+## 行号区间规则（必须严格遵守）
+
+- 原文每行开头有 [行号] 标记，如 [1]、[2]、[3]...
+- 每集用 line_start 和 line_end 表示该集对应的行号范围（闭区间）
+- **第一集的 line_start 必须是 1**
+- **最后一集的 line_end 必须是 ${totalLines}**
+- **相邻集必须紧密衔接**：上一集的 line_end + 1 = 下一集的 line_start
+- **不允许遗漏或重叠**：所有行必须且仅被分配到一集中
 
 ## 重要约束
 
@@ -291,27 +310,27 @@ export class AnalysisService {
 
 ## 输出格式
 
-严格按照JSON格式输出，不要包含任何其他文字：
+严格按照 JSON 格式输出，不要包含任何其他文字：
 
 {
   "episodes": [
     {
       "episode_number": 1,
-      "title": "集标题",
-      "summary": "剧情摘要（中文，3-5句话）",
-      "text_start_marker": "原文起始处的前20个字（精确复制）",
-      "text_end_marker": "原文结束处的后20个字（精确复制）",
+      "title": "集标题（简短有吸引力）",
+      "summary": "剧情摘要（中文，3-5 句话，概括本集核心事件和情感走向）",
+      "line_start": 1,
+      "line_end": 25,
       "character_names": ["角色A", "角色B"],
-      "scene_names": ["场景A", "场景B"],
+      "scene_names": ["场景A"],
       "emotion_curve": "平静 → 温馨 → 不安 → 震惊",
-      "ending_hook": "悬念描述"
+      "ending_hook": "本集结尾悬念描述（1 句话）"
     }
   ]
 }`;
   }
 
   private buildEpisodeUserPrompt(
-    novelText: string,
+    numberedText: string,
     characterNames: string[],
     sceneNames: string[],
   ): string {
@@ -321,64 +340,67 @@ ${characterNames.map((n) => `- ${n}`).join('\n')}
 ## 已提取的场景列表
 ${sceneNames.map((n) => `- ${n}`).join('\n')}
 
-## 小说原文
+## 小说原文（带行号）
 
-${novelText}
+${numberedText}
 
-请基于以上角色和场景，将小说拆分为多集短剧。character_names 和 scene_names 必须严格使用上方列表中的名称。
-注意：不要复制原文，只需提供 text_start_marker 和 text_end_marker 标记每集的原文范围。`;
+请基于以上内容将小说拆分为多集短剧。
+要求：
+1. character_names 和 scene_names 必须严格使用上方列表中的名称
+2. 每集用 line_start / line_end 标注行号范围
+3. 确保行号连续、无遗漏、无重叠`;
   }
 
-  // ==================== 原文截取工具方法 ====================
+  // ==================== 行号区间校验与修复 ====================
 
   /**
-   * 根据起止标记从原文中截取对应段落
+   * 校验分集行号区间的连续性和完整性，自动修复常见问题
    */
-  private extractOriginalText(
-    fullText: string,
-    startMarker: string,
-    endMarker: string,
-  ): string {
-    const startIdx = this.fuzzyIndexOf(fullText, startMarker);
-    const endIdx = this.fuzzyIndexOf(fullText, endMarker);
-
-    if (startIdx === -1 || endIdx === -1) {
-      this.logger.warn(
-        `原文标记匹配失败: start="${startMarker.slice(0, 10)}..." (${startIdx}), ` +
-          `end="...${endMarker.slice(-10)}" (${endIdx})`,
-      );
-      return '';
+  private validateEpisodeRanges(
+    episodes: EpisodePlanResult['episodes'],
+    totalLines: number,
+  ): EpisodePlanResult['episodes'] {
+    if (episodes.length === 0) {
+      throw new Error('LLM 返回了空的分集结果');
     }
 
-    const endPosition = endIdx + endMarker.length;
-    return fullText.slice(startIdx, endPosition);
-  }
+    // 按 line_start 排序
+    const sorted = [...episodes].sort((a, b) => a.line_start - b.line_start);
 
-  /**
-   * 模糊查找：先尝试精确匹配，失败后去除空白和标点差异重试
-   */
-  private fuzzyIndexOf(text: string, marker: string): number {
-    // 1. 精确匹配
-    const exactIdx = text.indexOf(marker);
-    if (exactIdx !== -1) return exactIdx;
+    // 修复第一集起始行
+    if (sorted[0].line_start !== 1) {
+      this.logger.warn(`分集校验：第一集 line_start=${sorted[0].line_start}，修正为 1`);
+      sorted[0].line_start = 1;
+    }
 
-    // 2. 去除多余空白后匹配
-    const normalize = (s: string) => s.replace(/\s+/g, '');
-    const normalizedText = normalize(text);
-    const normalizedMarker = normalize(marker);
-    const normalizedIdx = normalizedText.indexOf(normalizedMarker);
+    // 修复最后一集结束行
+    if (sorted[sorted.length - 1].line_end !== totalLines) {
+      this.logger.warn(
+        `分集校验：最后一集 line_end=${sorted[sorted.length - 1].line_end}，修正为 ${totalLines}`,
+      );
+      sorted[sorted.length - 1].line_end = totalLines;
+    }
 
-    if (normalizedIdx !== -1) {
-      // 反向映射到原文位置：遍历原文，跳过空白字符计数
-      let count = 0;
-      for (let i = 0; i < text.length; i++) {
-        if (!/\s/.test(text[i])) {
-          if (count === normalizedIdx) return i;
-          count++;
-        }
+    // 修复相邻集之间的间隙/重叠
+    for (let i = 1; i < sorted.length; i++) {
+      const expectedStart = sorted[i - 1].line_end + 1;
+      if (sorted[i].line_start !== expectedStart) {
+        this.logger.warn(
+          `分集校验：第${sorted[i].episode_number}集 line_start=${sorted[i].line_start}，修正为 ${expectedStart}`,
+        );
+        sorted[i].line_start = expectedStart;
       }
     }
 
-    return -1;
+    // 校验每集至少包含 1 行
+    for (const ep of sorted) {
+      if (ep.line_end < ep.line_start) {
+        this.logger.warn(
+          `分集校验：第${ep.episode_number}集范围无效 [${ep.line_start}, ${ep.line_end}]`,
+        );
+      }
+    }
+
+    return sorted;
   }
 }
