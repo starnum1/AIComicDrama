@@ -7,20 +7,20 @@ export declare class ProjectsService {
     constructor(prisma: PrismaService, orchestrator: PipelineOrchestrator);
     listProjects(userId: string): Promise<{
         id: string;
-        createdAt: Date;
-        updatedAt: Date;
         name: string;
         status: string;
         currentStep: string;
+        createdAt: Date;
+        updatedAt: Date;
     }[]>;
     createProject(userId: string, name: string): Promise<{
         id: string;
-        createdAt: Date;
-        updatedAt: Date;
-        name: string;
         userId: string;
+        name: string;
         status: string;
         currentStep: string;
+        createdAt: Date;
+        updatedAt: Date;
         llmProviderId: string | null;
         imageProviderId: string | null;
         videoProviderId: string | null;
@@ -29,6 +29,7 @@ export declare class ProjectsService {
         novel: {
             id: string;
             createdAt: Date;
+            originalText: string;
             charCount: number;
         } | null;
         _count: {
@@ -38,12 +39,12 @@ export declare class ProjectsService {
         };
     } & {
         id: string;
-        createdAt: Date;
-        updatedAt: Date;
-        name: string;
         userId: string;
+        name: string;
         status: string;
         currentStep: string;
+        createdAt: Date;
+        updatedAt: Date;
         llmProviderId: string | null;
         imageProviderId: string | null;
         videoProviderId: string | null;
@@ -89,26 +90,26 @@ export declare class ProjectsService {
         sheets: {
             id: string;
             createdAt: Date;
+            characterId: string;
             imageUrl: string;
             stateName: string | null;
             gridSpec: string;
-            characterId: string;
         }[];
         images: {
             id: string;
             createdAt: Date;
+            characterId: string;
             imageUrl: string;
             stateName: string | null;
-            characterId: string;
+            sheetId: string | null;
             imageType: string;
             cropRegion: import("@prisma/client/runtime/client").JsonValue | null;
-            sheetId: string | null;
         }[];
     } & {
         id: string;
+        name: string;
         createdAt: Date;
         updatedAt: Date;
-        name: string;
         projectId: string;
         description: string;
         visualPrompt: string;
@@ -130,35 +131,35 @@ export declare class ProjectsService {
     }): Promise<{
         id: string;
         createdAt: Date;
+        characterId: string;
         imageUrl: string;
         stateName: string | null;
-        characterId: string;
+        sheetId: string | null;
         imageType: string;
         cropRegion: import("@prisma/client/runtime/client").JsonValue | null;
-        sheetId: string | null;
     }>;
     deleteCharacterImage(userId: string, imageId: string): Promise<{
         success: boolean;
     }>;
     getEpisodes(userId: string, projectId: string): Promise<({
+        _count: {
+            shots: number;
+        };
         finalVideo: {
             id: string;
             videoUrl: string;
             duration: number | null;
         } | null;
-        _count: {
-            shots: number;
-        };
     } & {
         id: string;
         createdAt: Date;
         updatedAt: Date;
         projectId: string;
+        originalText: string;
         sortOrder: number;
         episodeNumber: number;
         title: string;
         summary: string;
-        originalText: string;
         characterIds: import("@prisma/client/runtime/client").JsonValue;
         sceneIds: import("@prisma/client/runtime/client").JsonValue;
         emotionCurve: string | null;
@@ -172,11 +173,11 @@ export declare class ProjectsService {
         createdAt: Date;
         updatedAt: Date;
         projectId: string;
+        originalText: string;
         sortOrder: number;
         episodeNumber: number;
         title: string;
         summary: string;
-        originalText: string;
         characterIds: import("@prisma/client/runtime/client").JsonValue;
         sceneIds: import("@prisma/client/runtime/client").JsonValue;
         emotionCurve: string | null;
@@ -186,26 +187,26 @@ export declare class ProjectsService {
         sheets: {
             id: string;
             createdAt: Date;
+            characterId: string;
             imageUrl: string;
             stateName: string | null;
             gridSpec: string;
-            characterId: string;
         }[];
         images: {
             id: string;
             createdAt: Date;
+            characterId: string;
             imageUrl: string;
             stateName: string | null;
-            characterId: string;
+            sheetId: string | null;
             imageType: string;
             cropRegion: import("@prisma/client/runtime/client").JsonValue | null;
-            sheetId: string | null;
         }[];
     } & {
         id: string;
+        name: string;
         createdAt: Date;
         updatedAt: Date;
-        name: string;
         projectId: string;
         description: string;
         visualPrompt: string;
@@ -220,14 +221,14 @@ export declare class ProjectsService {
             id: string;
             createdAt: Date;
             imageUrl: string;
-            variant: string;
             sceneId: string;
+            variant: string;
         }[];
     } & {
         id: string;
+        name: string;
         createdAt: Date;
         updatedAt: Date;
-        name: string;
         projectId: string;
         description: string;
         visualPrompt: string;
@@ -237,16 +238,12 @@ export declare class ProjectsService {
         variants: import("@prisma/client/runtime/client").JsonValue | null;
     })[]>;
     getShots(userId: string, episodeId: string): Promise<({
-        scene: {
-            id: string;
-            name: string;
-        };
         characters: ({
             character: {
                 id: string;
+                name: string;
                 createdAt: Date;
                 updatedAt: Date;
-                name: string;
                 projectId: string;
                 description: string;
                 visualPrompt: string;
@@ -259,8 +256,8 @@ export declare class ProjectsService {
         } & {
             id: string;
             characterId: string;
-            characterState: string | null;
             shotId: string;
+            characterState: string | null;
         })[];
         images: {
             id: string;
@@ -269,6 +266,10 @@ export declare class ProjectsService {
             imageType: string;
             shotId: string;
         }[];
+        scene: {
+            id: string;
+            name: string;
+        };
         video: {
             id: string;
             createdAt: Date;
@@ -281,9 +282,10 @@ export declare class ProjectsService {
         createdAt: Date;
         updatedAt: Date;
         sortOrder: number;
+        episodeId: string;
+        duration: number;
         sceneId: string;
         shotNumber: number;
-        duration: number;
         shotType: string;
         cameraMovement: string;
         imagePrompt: string;
@@ -296,7 +298,6 @@ export declare class ProjectsService {
         transitionIn: string;
         transitionOut: string;
         continuityStrength: string;
-        episodeId: string;
     })[]>;
     updateShot(userId: string, shotId: string, data: {
         imagePrompt?: string;
@@ -308,9 +309,10 @@ export declare class ProjectsService {
         createdAt: Date;
         updatedAt: Date;
         sortOrder: number;
+        episodeId: string;
+        duration: number;
         sceneId: string;
         shotNumber: number;
-        duration: number;
         shotType: string;
         cameraMovement: string;
         imagePrompt: string;
@@ -323,14 +325,13 @@ export declare class ProjectsService {
         transitionIn: string;
         transitionOut: string;
         continuityStrength: string;
-        episodeId: string;
     }>;
     getFinalVideo(userId: string, episodeId: string): Promise<{
         id: string;
         createdAt: Date;
+        episodeId: string;
         videoUrl: string;
         duration: number | null;
-        episodeId: string;
     }>;
     private verifyProjectOwnership;
 }

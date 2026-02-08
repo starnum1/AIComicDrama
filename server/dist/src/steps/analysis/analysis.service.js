@@ -41,7 +41,7 @@ let AnalysisService = AnalysisService_1 = class AnalysisService {
         ], {
             temperature: 0.7,
             maxTokens: 8000,
-        });
+        }, aiConfigs?.llm);
         const characterMap = new Map();
         for (let i = 0; i < extractResult.characters.length; i++) {
             const char = extractResult.characters[i];
@@ -89,7 +89,7 @@ let AnalysisService = AnalysisService_1 = class AnalysisService {
         ], {
             temperature: 0.7,
             maxTokens: 8000,
-        });
+        }, aiConfigs?.llm);
         const characterEpisodes = new Map();
         const sceneEpisodes = new Map();
         for (const ep of episodeResult.episodes) {

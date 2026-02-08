@@ -76,6 +76,7 @@ export class AnalysisService {
         temperature: 0.7,
         maxTokens: 8000,
       },
+      aiConfigs?.llm,
     );
 
     // 存储角色
@@ -139,6 +140,7 @@ export class AnalysisService {
         temperature: 0.7,
         maxTokens: 8000,
       },
+      aiConfigs?.llm,
     );
 
     // 存储分集，并回填角色/场景的 episodeIds

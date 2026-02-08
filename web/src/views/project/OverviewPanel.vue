@@ -31,7 +31,10 @@ onMounted(async () => {
     const { data } = await axios.get(`/api/projects/${projectId.value}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-    if (data.novel) novelUploaded.value = true
+    if (data.novel) {
+      novelUploaded.value = true
+      novelText.value = data.novel.originalText || ''
+    }
     projectAiConfig.value = {
       llmProviderId: data.llmProviderId || null,
       imageProviderId: data.imageProviderId || null,
