@@ -19,6 +19,7 @@ model User {
 
   projects      Project[]
   billingRecords BillingRecord[]
+  aiProviders   AiProvider[]
 }
 
 model BillingRecord {
@@ -30,6 +31,27 @@ model BillingRecord {
   description   String?
   relatedTaskId String?   // 关联的任务ID
   createdAt     DateTime  @default(now())
+}
+
+// ==================== AI 服务配置 ====================
+
+model AiProvider {
+  id            String    @id @default(uuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  name          String
+  providerType  String    // llm / image_gen / video_gen
+  baseUrl       String
+  apiKey        String
+  model         String
+  isDefault     Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // 被项目引用
+  projectsAsLlm   Project[] @relation("ProjectLlmProvider")
+  projectsAsImage Project[] @relation("ProjectImageProvider")
+  projectsAsVideo Project[] @relation("ProjectVideoProvider")
 }
 
 // ==================== 项目 ====================
@@ -45,6 +67,14 @@ model Project {
   currentStep   String    @default("created")
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+
+  // AI 服务配置（项目级别覆盖，留空则使用用户默认配置）
+  llmProviderId   String?
+  llmProvider     AiProvider? @relation("ProjectLlmProvider", fields: [llmProviderId], references: [id])
+  imageProviderId String?
+  imageProvider   AiProvider? @relation("ProjectImageProvider", fields: [imageProviderId], references: [id])
+  videoProviderId String?
+  videoProvider   AiProvider? @relation("ProjectVideoProvider", fields: [videoProviderId], references: [id])
 
   novel         Novel?
   characters    Character[]

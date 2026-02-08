@@ -51,6 +51,16 @@ export declare class ProjectsService {
     deleteProject(userId: string, projectId: string): Promise<{
         success: boolean;
     }>;
+    updateAiConfig(userId: string, projectId: string, config: {
+        llmProviderId?: string | null;
+        imageProviderId?: string | null;
+        videoProviderId?: string | null;
+    }): Promise<{
+        id: string;
+        llmProviderId: string | null;
+        imageProviderId: string | null;
+        videoProviderId: string | null;
+    }>;
     uploadNovel(userId: string, projectId: string, text: string): Promise<{
         id: string;
         charCount: number;

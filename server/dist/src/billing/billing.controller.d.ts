@@ -10,8 +10,8 @@ export declare class BillingController {
             id: string;
             createdAt: Date;
             userId: string;
-            type: string;
             description: string | null;
+            type: string;
             amount: import("@prisma/client/runtime/client").Decimal;
             relatedTaskId: string | null;
         };
@@ -23,8 +23,8 @@ export declare class BillingController {
         id: string;
         createdAt: Date;
         userId: string;
-        type: string;
         description: string | null;
+        type: string;
         amount: import("@prisma/client/runtime/client").Decimal;
         relatedTaskId: string | null;
     }[]>;

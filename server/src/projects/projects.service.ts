@@ -155,6 +155,36 @@ export class ProjectsService {
     return { success: true };
   }
 
+  // ==================== AI 配置 ====================
+
+  /** 更新项目的 AI 服务配置 */
+  async updateAiConfig(
+    userId: string,
+    projectId: string,
+    config: {
+      llmProviderId?: string | null;
+      imageProviderId?: string | null;
+      videoProviderId?: string | null;
+    },
+  ) {
+    await this.verifyProjectOwnership(userId, projectId);
+
+    return this.prisma.project.update({
+      where: { id: projectId },
+      data: {
+        llmProviderId: config.llmProviderId ?? null,
+        imageProviderId: config.imageProviderId ?? null,
+        videoProviderId: config.videoProviderId ?? null,
+      },
+      select: {
+        id: true,
+        llmProviderId: true,
+        imageProviderId: true,
+        videoProviderId: true,
+      },
+    });
+  }
+
   // ==================== 小说上传 ====================
 
   /** 上传小说文本 */

@@ -129,6 +129,23 @@ let ProjectsService = ProjectsService_1 = class ProjectsService {
         });
         return { success: true };
     }
+    async updateAiConfig(userId, projectId, config) {
+        await this.verifyProjectOwnership(userId, projectId);
+        return this.prisma.project.update({
+            where: { id: projectId },
+            data: {
+                llmProviderId: config.llmProviderId ?? null,
+                imageProviderId: config.imageProviderId ?? null,
+                videoProviderId: config.videoProviderId ?? null,
+            },
+            select: {
+                id: true,
+                llmProviderId: true,
+                imageProviderId: true,
+                videoProviderId: true,
+            },
+        });
+    }
     async uploadNovel(userId, projectId, text) {
         const project = await this.prisma.project.findUnique({
             where: { id: projectId },

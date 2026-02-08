@@ -39,6 +39,22 @@ export class ProjectsController {
     return this.projectsService.deleteProject(req.user.sub, id);
   }
 
+  // ==================== AI 配置 ====================
+
+  @Put('projects/:id/ai-config')
+  async updateAiConfig(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body()
+    body: {
+      llmProviderId?: string | null;
+      imageProviderId?: string | null;
+      videoProviderId?: string | null;
+    },
+  ) {
+    return this.projectsService.updateAiConfig(req.user.sub, id, body);
+  }
+
   // ==================== 小说上传与流水线控制 ====================
 
   @Post('projects/:id/novel')

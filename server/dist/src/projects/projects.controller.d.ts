@@ -50,6 +50,16 @@ export declare class ProjectsController {
     deleteProject(req: any, id: string): Promise<{
         success: boolean;
     }>;
+    updateAiConfig(req: any, id: string, body: {
+        llmProviderId?: string | null;
+        imageProviderId?: string | null;
+        videoProviderId?: string | null;
+    }): Promise<{
+        id: string;
+        llmProviderId: string | null;
+        imageProviderId: string | null;
+        videoProviderId: string | null;
+    }>;
     uploadNovel(req: any, id: string, body: {
         text: string;
     }): Promise<{

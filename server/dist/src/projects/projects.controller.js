@@ -32,6 +32,9 @@ let ProjectsController = class ProjectsController {
     async deleteProject(req, id) {
         return this.projectsService.deleteProject(req.user.sub, id);
     }
+    async updateAiConfig(req, id, body) {
+        return this.projectsService.updateAiConfig(req.user.sub, id, body);
+    }
     async uploadNovel(req, id, body) {
         return this.projectsService.uploadNovel(req.user.sub, id, body.text);
     }
@@ -116,6 +119,15 @@ __decorate([
     __metadata("design:paramtypes", [Object, String]),
     __metadata("design:returntype", Promise)
 ], ProjectsController.prototype, "deleteProject", null);
+__decorate([
+    (0, common_1.Put)('projects/:id/ai-config'),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, Object]),
+    __metadata("design:returntype", Promise)
+], ProjectsController.prototype, "updateAiConfig", null);
 __decorate([
     (0, common_1.Post)('projects/:id/novel'),
     __param(0, (0, common_1.Req)()),
