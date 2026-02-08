@@ -23,7 +23,7 @@ let AnalysisService = AnalysisService_1 = class AnalysisService {
         this.ws = ws;
         this.logger = new common_1.Logger(AnalysisService_1.name);
     }
-    async execute(projectId) {
+    async execute(projectId, aiConfigs) {
         const novel = await this.prisma.novel.findUnique({
             where: { projectId },
         });

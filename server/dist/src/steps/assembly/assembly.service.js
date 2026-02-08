@@ -61,7 +61,7 @@ let AssemblyService = AssemblyService_1 = class AssemblyService {
         this.ws = ws;
         this.logger = new common_1.Logger(AssemblyService_1.name);
     }
-    async execute(projectId) {
+    async execute(projectId, _aiConfigs) {
         const episodes = await this.prisma.episode.findMany({
             where: { projectId },
             include: {

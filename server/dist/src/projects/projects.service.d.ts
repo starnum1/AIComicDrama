@@ -21,6 +21,9 @@ export declare class ProjectsService {
         userId: string;
         status: string;
         currentStep: string;
+        llmProviderId: string | null;
+        imageProviderId: string | null;
+        videoProviderId: string | null;
     }>;
     getProject(userId: string, projectId: string): Promise<{
         novel: {
@@ -41,6 +44,9 @@ export declare class ProjectsService {
         userId: string;
         status: string;
         currentStep: string;
+        llmProviderId: string | null;
+        imageProviderId: string | null;
+        videoProviderId: string | null;
     }>;
     deleteProject(userId: string, projectId: string): Promise<{
         success: boolean;
@@ -57,6 +63,10 @@ export declare class ProjectsService {
         success: boolean;
         message: string;
     }>;
+    continueStep(userId: string, projectId: string): Promise<{
+        success: boolean;
+        message: string;
+    }>;
     restartStep(userId: string, projectId: string, step: string): Promise<{
         success: boolean;
         message: string;
@@ -70,16 +80,16 @@ export declare class ProjectsService {
             id: string;
             createdAt: Date;
             imageUrl: string;
-            characterId: string;
             stateName: string | null;
             gridSpec: string;
+            characterId: string;
         }[];
         images: {
             id: string;
             createdAt: Date;
             imageUrl: string;
-            characterId: string;
             stateName: string | null;
+            characterId: string;
             imageType: string;
             cropRegion: import("@prisma/client/runtime/client").JsonValue | null;
             sheetId: string | null;
@@ -111,8 +121,8 @@ export declare class ProjectsService {
         id: string;
         createdAt: Date;
         imageUrl: string;
-        characterId: string;
         stateName: string | null;
+        characterId: string;
         imageType: string;
         cropRegion: import("@prisma/client/runtime/client").JsonValue | null;
         sheetId: string | null;
@@ -134,11 +144,11 @@ export declare class ProjectsService {
         createdAt: Date;
         updatedAt: Date;
         projectId: string;
-        originalText: string;
         sortOrder: number;
         episodeNumber: number;
         title: string;
         summary: string;
+        originalText: string;
         characterIds: import("@prisma/client/runtime/client").JsonValue;
         sceneIds: import("@prisma/client/runtime/client").JsonValue;
         emotionCurve: string | null;
@@ -152,11 +162,11 @@ export declare class ProjectsService {
         createdAt: Date;
         updatedAt: Date;
         projectId: string;
-        originalText: string;
         sortOrder: number;
         episodeNumber: number;
         title: string;
         summary: string;
+        originalText: string;
         characterIds: import("@prisma/client/runtime/client").JsonValue;
         sceneIds: import("@prisma/client/runtime/client").JsonValue;
         emotionCurve: string | null;
@@ -167,16 +177,16 @@ export declare class ProjectsService {
             id: string;
             createdAt: Date;
             imageUrl: string;
-            characterId: string;
             stateName: string | null;
             gridSpec: string;
+            characterId: string;
         }[];
         images: {
             id: string;
             createdAt: Date;
             imageUrl: string;
-            characterId: string;
             stateName: string | null;
+            characterId: string;
             imageType: string;
             cropRegion: import("@prisma/client/runtime/client").JsonValue | null;
             sheetId: string | null;
@@ -200,8 +210,8 @@ export declare class ProjectsService {
             id: string;
             createdAt: Date;
             imageUrl: string;
-            sceneId: string;
             variant: string;
+            sceneId: string;
         }[];
     } & {
         id: string;

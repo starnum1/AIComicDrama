@@ -1,6 +1,8 @@
 import { WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { PrismaService } from '../common/prisma.service';
+import { AiProvidersService } from '../ai-providers/ai-providers.service';
+import type { AiProviderConfig } from '../ai-providers/ai-providers.service';
 import { AnalysisService } from '../steps/analysis/analysis.service';
 import { AssetService } from '../steps/asset/asset.service';
 import { StoryboardService } from '../steps/storyboard/storyboard.service';
@@ -9,8 +11,14 @@ import { VideoService } from '../steps/video/video.service';
 import { AssemblyService } from '../steps/assembly/assembly.service';
 import { WsGateway } from '../common/ws.gateway';
 import { PipelineOrchestrator, PipelineJobData } from './pipeline.orchestrator';
+export interface ProjectAiConfigs {
+    llm?: AiProviderConfig;
+    imageGen?: AiProviderConfig;
+    videoGen?: AiProviderConfig;
+}
 export declare class PipelineProcessor extends WorkerHost {
     private prisma;
+    private aiProvidersService;
     private orchestrator;
     private analysisService;
     private assetService;
@@ -20,7 +28,7 @@ export declare class PipelineProcessor extends WorkerHost {
     private assemblyService;
     private ws;
     private readonly logger;
-    constructor(prisma: PrismaService, orchestrator: PipelineOrchestrator, analysisService: AnalysisService, assetService: AssetService, storyboardService: StoryboardService, anchorService: AnchorService, videoService: VideoService, assemblyService: AssemblyService, ws: WsGateway);
+    constructor(prisma: PrismaService, aiProvidersService: AiProvidersService, orchestrator: PipelineOrchestrator, analysisService: AnalysisService, assetService: AssetService, storyboardService: StoryboardService, anchorService: AnchorService, videoService: VideoService, assemblyService: AssemblyService, ws: WsGateway);
     process(job: Job<PipelineJobData>): Promise<void>;
     private executeStep;
     private clearStepOutput;

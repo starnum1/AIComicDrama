@@ -25,7 +25,8 @@ let VideoService = VideoService_1 = class VideoService {
         this.ws = ws;
         this.logger = new common_1.Logger(VideoService_1.name);
     }
-    async execute(projectId) {
+    async execute(projectId, aiConfigs) {
+        const videoConfig = aiConfigs?.videoGen;
         const episodes = await this.prisma.episode.findMany({
             where: { projectId },
             include: {
@@ -39,7 +40,7 @@ let VideoService = VideoService_1 = class VideoService {
         const taskFactories = [];
         for (const episode of episodes) {
             for (const shot of episode.shots) {
-                taskFactories.push(() => this.generateForShot(shot.id));
+                taskFactories.push(() => this.generateForShot(shot.id, videoConfig));
             }
         }
         await (0, concurrency_1.executeBatch)(taskFactories, 3, (completed, total) => {
@@ -52,7 +53,7 @@ let VideoService = VideoService_1 = class VideoService {
         });
         this.logger.log(`Project ${projectId} - 视频生成完成`);
     }
-    async generateForShot(shotId) {
+    async generateForShot(shotId, videoConfig) {
         const shot = await this.prisma.shot.findUnique({
             where: { id: shotId },
             include: {
@@ -78,7 +79,7 @@ let VideoService = VideoService_1 = class VideoService {
             lastFrameUrl: lastFrame?.imageUrl,
             prompt: videoPrompt,
             duration: shot.duration,
-        });
+        }, videoConfig);
         if (result.status === 'failed') {
             throw new Error(`Video generation failed for shot ${shotId}`);
         }

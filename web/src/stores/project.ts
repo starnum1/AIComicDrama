@@ -74,7 +74,8 @@ export const useProjectStore = defineStore('project', () => {
 
   function setNeedReview(step: string) {
     needReviewStep.value = step
-    projectStatus.value = 'asset_review'
+    projectStatus.value = `${step}_review`
+    progress.value = null // 清除进度，步骤已完成等待确认
   }
 
   function setStepFailed(step: string, errorMsg: string) {

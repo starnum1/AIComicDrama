@@ -25,7 +25,8 @@ let AnchorService = AnchorService_1 = class AnchorService {
         this.ws = ws;
         this.logger = new common_1.Logger(AnchorService_1.name);
     }
-    async execute(projectId) {
+    async execute(projectId, aiConfigs) {
+        const imageConfig = aiConfigs?.imageGen;
         const episodes = await this.prisma.episode.findMany({
             where: { projectId },
             include: {
@@ -42,7 +43,7 @@ let AnchorService = AnchorService_1 = class AnchorService {
         const taskFactories = [];
         for (const episode of episodes) {
             for (const shot of episode.shots) {
-                taskFactories.push(() => this.generateForShot(shot.id));
+                taskFactories.push(() => this.generateForShot(shot.id, imageConfig));
             }
         }
         await (0, concurrency_1.executeBatch)(taskFactories, 5, (completed, total) => {
@@ -55,7 +56,7 @@ let AnchorService = AnchorService_1 = class AnchorService {
         });
         this.logger.log(`Project ${projectId} - 视觉锚点生成完成`);
     }
-    async generateForShot(shotId) {
+    async generateForShot(shotId, imageConfig) {
         const shot = await this.prisma.shot.findUnique({
             where: { id: shotId },
             include: {
@@ -83,7 +84,7 @@ let AnchorService = AnchorService_1 = class AnchorService {
             referenceStrength,
             width: 1920,
             height: 1080,
-        });
+        }, imageConfig);
         const firstFramePath = this.storage.generatePath(shot.episode.projectId, 'anchors', 'png');
         const firstFrameUrl = await this.storage.uploadFromUrl(firstFrameResult.imageUrl, firstFramePath);
         await this.prisma.shotImage.create({
@@ -100,7 +101,7 @@ let AnchorService = AnchorService_1 = class AnchorService {
             referenceStrength,
             width: 1920,
             height: 1080,
-        });
+        }, imageConfig);
         const lastFramePath = this.storage.generatePath(shot.episode.projectId, 'anchors', 'png');
         const lastFrameUrl = await this.storage.uploadFromUrl(lastFrameResult.imageUrl, lastFramePath);
         await this.prisma.shotImage.create({

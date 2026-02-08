@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
 import { LLMService } from '../../providers/llm/llm.service';
 import { WsGateway } from '../../common/ws.gateway';
+import type { ProjectAiConfigs } from '../../pipeline/pipeline.processor';
 
 // Phase 1 输出：角色 + 场景
 interface ExtractResult {
@@ -48,7 +49,7 @@ export class AnalysisService {
     private ws: WsGateway,
   ) {}
 
-  async execute(projectId: string): Promise<void> {
+  async execute(projectId: string, aiConfigs?: ProjectAiConfigs): Promise<void> {
     // 1. 获取小说原文
     const novel = await this.prisma.novel.findUnique({
       where: { projectId },

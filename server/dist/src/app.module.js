@@ -12,6 +12,7 @@ const config_1 = require("@nestjs/config");
 const bullmq_1 = require("@nestjs/bullmq");
 const common_module_1 = require("./common/common.module");
 const providers_module_1 = require("./providers/providers.module");
+const ai_providers_module_1 = require("./ai-providers/ai-providers.module");
 const pipeline_module_1 = require("./pipeline/pipeline.module");
 const auth_module_1 = require("./auth/auth.module");
 const projects_module_1 = require("./projects/projects.module");
@@ -34,6 +35,7 @@ exports.AppModule = AppModule = __decorate([
             }),
             common_module_1.CommonModule,
             providers_module_1.ProvidersModule,
+            ai_providers_module_1.AiProvidersModule,
             pipeline_module_1.PipelineModule,
             auth_module_1.AuthModule,
             projects_module_1.ProjectsModule,

@@ -14,6 +14,7 @@ exports.PipelineProcessor = void 0;
 const bullmq_1 = require("@nestjs/bullmq");
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../common/prisma.service");
+const ai_providers_service_1 = require("../ai-providers/ai-providers.service");
 const analysis_service_1 = require("../steps/analysis/analysis.service");
 const asset_service_1 = require("../steps/asset/asset.service");
 const storyboard_service_1 = require("../steps/storyboard/storyboard.service");
@@ -24,9 +25,10 @@ const ws_gateway_1 = require("../common/ws.gateway");
 const pipeline_orchestrator_1 = require("./pipeline.orchestrator");
 const shared_1 = require("@aicomic/shared");
 let PipelineProcessor = PipelineProcessor_1 = class PipelineProcessor extends bullmq_1.WorkerHost {
-    constructor(prisma, orchestrator, analysisService, assetService, storyboardService, anchorService, videoService, assemblyService, ws) {
+    constructor(prisma, aiProvidersService, orchestrator, analysisService, assetService, storyboardService, anchorService, videoService, assemblyService, ws) {
         super();
         this.prisma = prisma;
+        this.aiProvidersService = aiProvidersService;
         this.orchestrator = orchestrator;
         this.analysisService = analysisService;
         this.assetService = assetService;
@@ -46,14 +48,16 @@ let PipelineProcessor = PipelineProcessor_1 = class PipelineProcessor extends bu
         });
         this.ws.emitToProject(projectId, 'step:start', { step });
         try {
+            const aiConfigs = await this.aiProvidersService.resolveProjectAiConfigs(projectId);
+            this.logger.log(`AI configs: LLM=${aiConfigs.llm ? 'custom' : 'system'}, Image=${aiConfigs.imageGen ? 'custom' : 'system'}, Video=${aiConfigs.videoGen ? 'custom' : 'system'}`);
             await this.clearStepOutput(projectId, step);
-            await this.executeStep(projectId, step);
+            await this.executeStep(projectId, step, aiConfigs);
             this.ws.emitToProject(projectId, 'step:complete', { step });
             this.logger.log(`Completed: Project ${projectId} - Step ${step}`);
             if (shared_1.PIPELINE_REVIEW_STEPS.includes(step)) {
                 await this.prisma.project.update({
                     where: { id: projectId },
-                    data: { status: 'asset_review' },
+                    data: { status: `${step}_review` },
                 });
                 this.ws.emitToProject(projectId, 'step:need_review', { step });
                 return;
@@ -64,22 +68,17 @@ let PipelineProcessor = PipelineProcessor_1 = class PipelineProcessor extends bu
             const errorMsg = error.message;
             const maxAttempts = job.opts?.attempts ?? 1;
             const isLastAttempt = job.attemptsMade + 1 >= maxAttempts;
-            this.logger.error(`Failed: Project ${projectId} - Step ${step} ` +
-                `(attempt ${job.attemptsMade + 1}/${maxAttempts}): ${errorMsg}`);
+            this.logger.error(`Failed: Project ${projectId} - Step ${step} (attempt ${job.attemptsMade + 1}/${maxAttempts}): ${errorMsg}`);
             if (isLastAttempt) {
                 this.logger.error(`Final failure for Project ${projectId} - Step ${step}`);
                 await this.prisma.project.update({
                     where: { id: projectId },
                     data: { status: 'failed', currentStep: step },
                 });
-                this.ws.emitToProject(projectId, 'step:failed', {
-                    step,
-                    error: errorMsg,
-                });
+                this.ws.emitToProject(projectId, 'step:failed', { step, error: errorMsg });
             }
             else {
-                this.logger.warn(`Will retry Project ${projectId} - Step ${step} ` +
-                    `(${maxAttempts - job.attemptsMade - 1} retries left)`);
+                this.logger.warn(`Will retry Project ${projectId} - Step ${step} (${maxAttempts - job.attemptsMade - 1} retries left)`);
                 this.ws.emitToProject(projectId, 'progress:detail', {
                     step,
                     message: `步骤失败，正在重试 (${job.attemptsMade + 1}/${maxAttempts})...`,
@@ -90,20 +89,14 @@ let PipelineProcessor = PipelineProcessor_1 = class PipelineProcessor extends bu
             throw error;
         }
     }
-    async executeStep(projectId, step) {
+    async executeStep(projectId, step, aiConfigs) {
         switch (step) {
-            case 'analysis':
-                return this.analysisService.execute(projectId);
-            case 'asset':
-                return this.assetService.execute(projectId);
-            case 'storyboard':
-                return this.storyboardService.execute(projectId);
-            case 'anchor':
-                return this.anchorService.execute(projectId);
-            case 'video':
-                return this.videoService.execute(projectId);
-            case 'assembly':
-                return this.assemblyService.execute(projectId);
+            case 'analysis': return this.analysisService.execute(projectId, aiConfigs);
+            case 'asset': return this.assetService.execute(projectId, aiConfigs);
+            case 'storyboard': return this.storyboardService.execute(projectId, aiConfigs);
+            case 'anchor': return this.anchorService.execute(projectId, aiConfigs);
+            case 'video': return this.videoService.execute(projectId, aiConfigs);
+            case 'assembly': return this.assemblyService.execute(projectId, aiConfigs);
         }
     }
     async clearStepOutput(projectId, step) {
@@ -115,48 +108,31 @@ let PipelineProcessor = PipelineProcessor_1 = class PipelineProcessor extends bu
                 await this.prisma.scene.deleteMany({ where: { projectId } });
                 break;
             case 'asset':
-                await this.prisma.characterImage.deleteMany({
-                    where: { character: { projectId } },
-                });
-                await this.prisma.characterSheet.deleteMany({
-                    where: { character: { projectId } },
-                });
-                await this.prisma.sceneImage.deleteMany({
-                    where: { scene: { projectId } },
-                });
+                await this.prisma.characterImage.deleteMany({ where: { character: { projectId } } });
+                await this.prisma.characterSheet.deleteMany({ where: { character: { projectId } } });
+                await this.prisma.sceneImage.deleteMany({ where: { scene: { projectId } } });
                 break;
             case 'storyboard':
-                await this.prisma.shotCharacter.deleteMany({
-                    where: { shot: { episode: { projectId } } },
-                });
-                await this.prisma.shot.deleteMany({
-                    where: { episode: { projectId } },
-                });
+                await this.prisma.shotCharacter.deleteMany({ where: { shot: { episode: { projectId } } } });
+                await this.prisma.shot.deleteMany({ where: { episode: { projectId } } });
                 break;
             case 'anchor':
-                await this.prisma.shotImage.deleteMany({
-                    where: { shot: { episode: { projectId } } },
-                });
+                await this.prisma.shotImage.deleteMany({ where: { shot: { episode: { projectId } } } });
                 break;
             case 'video':
-                await this.prisma.shotVideo.deleteMany({
-                    where: { shot: { episode: { projectId } } },
-                });
+                await this.prisma.shotVideo.deleteMany({ where: { shot: { episode: { projectId } } } });
                 break;
             case 'assembly':
-                await this.prisma.finalVideo.deleteMany({
-                    where: { episode: { projectId } },
-                });
+                await this.prisma.finalVideo.deleteMany({ where: { episode: { projectId } } });
                 break;
         }
     }
 };
 exports.PipelineProcessor = PipelineProcessor;
 exports.PipelineProcessor = PipelineProcessor = PipelineProcessor_1 = __decorate([
-    (0, bullmq_1.Processor)('pipeline', {
-        concurrency: 2,
-    }),
+    (0, bullmq_1.Processor)('pipeline', { concurrency: 2 }),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        ai_providers_service_1.AiProvidersService,
         pipeline_orchestrator_1.PipelineOrchestrator,
         analysis_service_1.AnalysisService,
         asset_service_1.AssetService,

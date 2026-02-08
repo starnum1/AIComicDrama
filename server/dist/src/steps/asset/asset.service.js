@@ -58,7 +58,8 @@ let AssetService = AssetService_1 = class AssetService {
         this.ws = ws;
         this.logger = new common_1.Logger(AssetService_1.name);
     }
-    async execute(projectId) {
+    async execute(projectId, aiConfigs) {
+        const imageConfig = aiConfigs?.imageGen;
         const characters = await this.prisma.character.findMany({
             where: { projectId },
         });
@@ -70,7 +71,7 @@ let AssetService = AssetService_1 = class AssetService {
         const taskFactories = [];
         for (const character of characters) {
             taskFactories.push(async () => {
-                await this.generateCharacterSheet(projectId, character);
+                await this.generateCharacterSheet(projectId, character, imageConfig);
                 completedAssets++;
                 this.ws.emitToProject(projectId, 'progress:detail', {
                     step: 'asset',
@@ -84,7 +85,7 @@ let AssetService = AssetService_1 = class AssetService {
         }
         for (const scene of scenes) {
             taskFactories.push(async () => {
-                await this.generateSceneImages(projectId, scene);
+                await this.generateSceneImages(projectId, scene, imageConfig);
                 completedAssets++;
                 this.ws.emitToProject(projectId, 'progress:detail', {
                     step: 'asset',
@@ -99,24 +100,24 @@ let AssetService = AssetService_1 = class AssetService {
         await (0, concurrency_1.executeBatch)(taskFactories, 5);
         this.logger.log(`Project ${projectId} - 视觉资产生成完成（设定图已生成，等待用户裁剪确认）`);
     }
-    async generateCharacterSheet(projectId, character) {
-        await this.generateSingleSheet(projectId, character, null);
+    async generateCharacterSheet(projectId, character, imageConfig) {
+        await this.generateSingleSheet(projectId, character, null, imageConfig);
         const states = character.states;
         if (states) {
             for (const [stateName, statePrompt] of Object.entries(states)) {
                 const stateCharacter = { ...character, visualPrompt: statePrompt };
-                await this.generateSingleSheet(projectId, stateCharacter, stateName);
+                await this.generateSingleSheet(projectId, stateCharacter, stateName, imageConfig);
             }
         }
     }
-    async generateSingleSheet(projectId, character, stateName) {
+    async generateSingleSheet(projectId, character, stateName, imageConfig) {
         const prompt = this.buildCharacterSheetPrompt(character.visualPrompt);
         const result = await this.imageGen.generate({
             prompt,
             negativePrompt: `${character.visualNegative}, single view, single pose, cropped, partial body`,
             width: 1536,
             height: 1536,
-        });
+        }, imageConfig);
         const storagePath = this.storage.generatePath(projectId, 'character-sheets', 'png');
         const localUrl = await this.storage.uploadFromUrl(result.imageUrl, storagePath);
         await this.prisma.characterSheet.create({
@@ -206,14 +207,14 @@ let AssetService = AssetService_1 = class AssetService {
             await this.generateSingleSheet(projectId, character, null);
         }
     }
-    async generateSceneImages(projectId, scene) {
+    async generateSceneImages(projectId, scene, imageConfig) {
         const defaultPrompt = `${scene.visualPrompt}, wide shot, establishing shot, full environment view, 16:9 aspect ratio, high quality, detailed background`;
         const defaultResult = await this.imageGen.generate({
             prompt: defaultPrompt,
             negativePrompt: scene.visualNegative,
             width: 1920,
             height: 1080,
-        });
+        }, imageConfig);
         const defaultPath = this.storage.generatePath(projectId, 'scenes', 'png');
         const defaultUrl = await this.storage.uploadFromUrl(defaultResult.imageUrl, defaultPath);
         await this.prisma.sceneImage.create({
@@ -234,7 +235,7 @@ let AssetService = AssetService_1 = class AssetService {
                     referenceStrength: 0.7,
                     width: 1920,
                     height: 1080,
-                });
+                }, imageConfig);
                 const variantPath = this.storage.generatePath(projectId, 'scenes', 'png');
                 const variantUrl = await this.storage.uploadFromUrl(variantResult.imageUrl, variantPath);
                 await this.prisma.sceneImage.create({

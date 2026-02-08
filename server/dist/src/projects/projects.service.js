@@ -165,6 +165,9 @@ let ProjectsService = ProjectsService_1 = class ProjectsService {
         return { success: true, message: '流水线已启动' };
     }
     async confirmAssets(userId, projectId) {
+        return this.continueStep(userId, projectId);
+    }
+    async continueStep(userId, projectId) {
         const project = await this.prisma.project.findUnique({
             where: { id: projectId },
         });
@@ -172,8 +175,11 @@ let ProjectsService = ProjectsService_1 = class ProjectsService {
             throw new common_1.NotFoundException('项目不存在');
         if (project.userId !== userId)
             throw new common_1.ForbiddenException('无权操作');
-        await this.orchestrator.continueAfterAssetReview(projectId);
-        return { success: true, message: '资产已确认，继续流水线' };
+        if (!project.status?.endsWith('_review')) {
+            throw new common_1.BadRequestException('当前状态不需要确认');
+        }
+        await this.orchestrator.continueAfterReview(projectId);
+        return { success: true, message: '已确认，继续执行下一步' };
     }
     async restartStep(userId, projectId, step) {
         const project = await this.prisma.project.findUnique({

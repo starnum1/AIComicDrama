@@ -199,16 +199,24 @@ export class ProjectsService {
     return { success: true, message: '流水线已启动' };
   }
 
-  /** 确认资产，继续流水线 */
+  /** 确认资产，继续流水线（保留向后兼容） */
   async confirmAssets(userId: string, projectId: string) {
+    return this.continueStep(userId, projectId);
+  }
+
+  /** 确认当前步骤结果，继续执行下一步（通用方法） */
+  async continueStep(userId: string, projectId: string) {
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
     });
     if (!project) throw new NotFoundException('项目不存在');
     if (project.userId !== userId) throw new ForbiddenException('无权操作');
+    if (!project.status?.endsWith('_review')) {
+      throw new BadRequestException('当前状态不需要确认');
+    }
 
-    await this.orchestrator.continueAfterAssetReview(projectId);
-    return { success: true, message: '资产已确认，继续流水线' };
+    await this.orchestrator.continueAfterReview(projectId);
+    return { success: true, message: '已确认，继续执行下一步' };
   }
 
   /** 从指定步骤重跑 */

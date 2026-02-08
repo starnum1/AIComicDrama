@@ -15,6 +15,7 @@ export declare class PipelineOrchestrator {
     startFrom(projectId: string, fromStep: PipelineStep): Promise<void>;
     scheduleNextStep(projectId: string, currentStep: PipelineStep): Promise<void>;
     continueAfterAssetReview(projectId: string): Promise<void>;
+    continueAfterReview(projectId: string): Promise<void>;
     restartFrom(projectId: string, fromStep: PipelineStep): Promise<void>;
     retrySingleShot(shotId: string, fromStep: 'anchor' | 'video'): Promise<void>;
     clearOutputsFrom(projectId: string, fromStep: PipelineStep): Promise<void>;

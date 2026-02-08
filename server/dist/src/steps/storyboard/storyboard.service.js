@@ -23,7 +23,8 @@ let StoryboardService = StoryboardService_1 = class StoryboardService {
         this.ws = ws;
         this.logger = new common_1.Logger(StoryboardService_1.name);
     }
-    async execute(projectId) {
+    async execute(projectId, aiConfigs) {
+        const llmConfig = aiConfigs?.llm;
         const episodes = await this.prisma.episode.findMany({
             where: { projectId },
             orderBy: { sortOrder: 'asc' },
@@ -44,7 +45,7 @@ let StoryboardService = StoryboardService_1 = class StoryboardService {
                 entityType: 'episode',
                 entityId: episode.id,
             });
-            const shotCount = await this.generateForEpisode(projectId, episode, characters, scenes);
+            const shotCount = await this.generateForEpisode(projectId, episode, characters, scenes, llmConfig);
             this.ws.emitToProject(projectId, 'storyboard:episode:complete', {
                 episodeId: episode.id,
                 episodeNumber: episode.episodeNumber,
@@ -52,7 +53,7 @@ let StoryboardService = StoryboardService_1 = class StoryboardService {
             });
         }
     }
-    async generateForEpisode(projectId, episode, characters, scenes) {
+    async generateForEpisode(projectId, episode, characters, scenes, llmConfig) {
         const systemPrompt = this.buildSystemPrompt();
         const userPrompt = this.buildUserPrompt(episode, characters, scenes);
         const { data: result } = await this.llm.chatJSON([
@@ -61,7 +62,7 @@ let StoryboardService = StoryboardService_1 = class StoryboardService {
         ], {
             temperature: 0.7,
             maxTokens: 16000,
-        });
+        }, llmConfig);
         const characterMap = new Map(characters.map((c) => [c.name, c.id]));
         const sceneMap = new Map(scenes.map((s) => [s.name, s.id]));
         for (const shot of result.shots) {

@@ -14,20 +14,45 @@ const uploading = ref(false)
 const starting = ref(false)
 const novelUploaded = ref(false)
 
-// 加载时检查是否已有小说
+// AI 配置
+interface AiProviderOption { id: string; name: string; providerType: string; model: string; isDefault: boolean }
+const aiProviders = ref<AiProviderOption[]>([])
+const projectAiConfig = ref({ llmProviderId: null as string | null, imageProviderId: null as string | null, videoProviderId: null as string | null })
+
+const llmOptions = computed(() => aiProviders.value.filter(p => p.providerType === 'llm'))
+const imageOptions = computed(() => aiProviders.value.filter(p => p.providerType === 'image_gen'))
+const videoOptions = computed(() => aiProviders.value.filter(p => p.providerType === 'video_gen'))
+const hasAnyProvider = computed(() => aiProviders.value.length > 0)
+
+// 加载时检查是否已有小说 + 加载 AI 配置
 onMounted(async () => {
+  const token = localStorage.getItem('token')
   try {
-    const token = localStorage.getItem('token')
     const { data } = await axios.get(`/api/projects/${projectId.value}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-    if (data.novel) {
-      novelUploaded.value = true
+    if (data.novel) novelUploaded.value = true
+    projectAiConfig.value = {
+      llmProviderId: data.llmProviderId || null,
+      imageProviderId: data.imageProviderId || null,
+      videoProviderId: data.videoProviderId || null,
     }
-  } catch {
-    // ignore
-  }
+  } catch { /* ignore */ }
+  try {
+    const { data } = await axios.get('/api/ai-providers', { headers: { Authorization: `Bearer ${token}` } })
+    aiProviders.value = data
+  } catch { /* ignore */ }
 })
+
+async function saveAiConfig() {
+  try {
+    const token = localStorage.getItem('token')
+    await axios.put(`/api/projects/${projectId.value}/ai-config`, projectAiConfig.value, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    ElMessage.success('AI 配置已保存')
+  } catch { ElMessage.error('保存失败') }
+}
 
 // 是否处于失败状态
 const isFailed = computed(() => projectStore.projectStatus === 'failed')
@@ -166,6 +191,52 @@ async function startPipeline() {
           {{ starting ? '启动中...' : isFailed ? '重新生成' : '开始生成' }}
         </button>
       </div>
+    </div>
+
+    <!-- AI 配置选择 -->
+    <div class="ai-config-section" v-if="hasAnyProvider">
+      <div class="section-header">
+        <h2 class="section-title">
+          <el-icon><Setting /></el-icon>
+          AI 服务配置
+        </h2>
+        <span class="config-hint">为本项目指定 AI 服务，留空则使用默认配置</span>
+      </div>
+      <div class="ai-config-grid">
+        <div class="config-item">
+          <label>大语言模型 (LLM)</label>
+          <select v-model="projectAiConfig.llmProviderId" class="config-select" @change="saveAiConfig">
+            <option :value="null">使用默认</option>
+            <option v-for="p in llmOptions" :key="p.id" :value="p.id">{{ p.name }} ({{ p.model }})</option>
+          </select>
+        </div>
+        <div class="config-item">
+          <label>图像生成</label>
+          <select v-model="projectAiConfig.imageProviderId" class="config-select" @change="saveAiConfig">
+            <option :value="null">使用默认</option>
+            <option v-for="p in imageOptions" :key="p.id" :value="p.id">{{ p.name }} ({{ p.model }})</option>
+          </select>
+        </div>
+        <div class="config-item">
+          <label>视频生成</label>
+          <select v-model="projectAiConfig.videoProviderId" class="config-select" @change="saveAiConfig">
+            <option :value="null">使用默认</option>
+            <option v-for="p in videoOptions" :key="p.id" :value="p.id">{{ p.name }} ({{ p.model }})</option>
+          </select>
+        </div>
+      </div>
+      <div class="config-manage-link">
+        <router-link to="/settings/ai-providers">管理 AI 服务 →</router-link>
+      </div>
+    </div>
+    <div class="ai-config-section ai-config-empty" v-else>
+      <div class="section-header">
+        <h2 class="section-title">
+          <el-icon><Setting /></el-icon>
+          AI 服务配置
+        </h2>
+      </div>
+      <p class="empty-tip">你还没有配置任何 AI 服务。<router-link to="/settings/ai-providers">前往配置 →</router-link></p>
     </div>
 
     <!-- 流程说明 -->
@@ -497,5 +568,85 @@ async function startPipeline() {
   color: var(--text-muted);
   flex-shrink: 0;
   font-size: 14px;
+}
+
+/* AI 配置区域 */
+.ai-config-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+.ai-config-section .section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.config-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.ai-config-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.config-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.config-item label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.config-select {
+  padding: 8px 12px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.config-select:focus {
+  border-color: var(--primary);
+}
+.config-select option {
+  background: var(--bg-dark);
+  color: var(--text-primary);
+}
+.config-manage-link {
+  margin-top: 12px;
+  text-align: right;
+}
+.config-manage-link a {
+  font-size: 13px;
+  color: var(--primary-light);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.config-manage-link a:hover {
+  color: var(--accent);
+}
+.ai-config-empty {
+  text-align: center;
+  padding: 32px;
+}
+.empty-tip {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.empty-tip a {
+  color: var(--primary-light);
+  text-decoration: none;
+}
+.empty-tip a:hover {
+  color: var(--accent);
 }
 </style>

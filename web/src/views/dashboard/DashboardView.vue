@@ -96,19 +96,19 @@ async function deleteProject(id: string, name: string) {
 }
 
 function getStatusInfo(status: string) {
+  // 处理通用的 _processing 和 _review 状态
+  if (status?.endsWith('_processing')) {
+    return { color: '#6c5ce7', label: '执行中', icon: 'Loading' }
+  }
+  if (status?.endsWith('_review')) {
+    return { color: '#fdcb6e', label: '待确认', icon: 'View' }
+  }
   const map: Record<string, { color: string; label: string; icon: string }> = {
     created: { color: '#a0a0b8', label: '草稿', icon: 'Edit' },
-    analyzing: { color: '#6c5ce7', label: '分析中', icon: 'Loading' },
-    assets_generating: { color: '#a29bfe', label: '资产生成', icon: 'Picture' },
-    asset_review: { color: '#fdcb6e', label: '待审核', icon: 'View' },
-    storyboarding: { color: '#00cec9', label: '分镜中', icon: 'Film' },
-    anchoring: { color: '#74b9ff', label: '锚点生成', icon: 'Aim' },
-    video_generating: { color: '#fd79a8', label: '视频生成', icon: 'VideoPlay' },
-    assembling: { color: '#e17055', label: '组装中', icon: 'SetUp' },
     completed: { color: '#00b894', label: '已完成', icon: 'CircleCheck' },
     failed: { color: '#d63031', label: '失败', icon: 'CircleClose' },
   }
-  return map[status] || { color: '#a0a0b8', label: status, icon: 'Document' }
+  return map[status] || { color: '#a0a0b8', label: status || '草稿', icon: 'Document' }
 }
 
 function timeAgo(dateStr: string) {
@@ -161,6 +161,10 @@ function handleLogout() {
         <a class="nav-item" @click="router.push('/billing')">
           <el-icon><Coin /></el-icon>
           费用
+        </a>
+        <a class="nav-item" @click="router.push('/settings/ai-providers')">
+          <el-icon><Setting /></el-icon>
+          AI 配置
         </a>
       </nav>
       <div class="topbar-right">

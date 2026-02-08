@@ -4,6 +4,8 @@ import { VideoGenService } from '../../providers/video-gen/video-gen.service';
 import { StorageService } from '../../providers/storage/storage.service';
 import { WsGateway } from '../../common/ws.gateway';
 import { executeBatch } from '../../common/concurrency';
+import type { ProjectAiConfigs } from '../../pipeline/pipeline.processor';
+import type { AiProviderConfig } from '../../ai-providers/ai-providers.service';
 
 @Injectable()
 export class VideoService {
@@ -16,7 +18,8 @@ export class VideoService {
     private ws: WsGateway,
   ) {}
 
-  async execute(projectId: string): Promise<void> {
+  async execute(projectId: string, aiConfigs?: ProjectAiConfigs): Promise<void> {
+    const videoConfig = aiConfigs?.videoGen;
     const episodes = await this.prisma.episode.findMany({
       where: { projectId },
       include: {
@@ -33,7 +36,7 @@ export class VideoService {
 
     for (const episode of episodes) {
       for (const shot of episode.shots) {
-        taskFactories.push(() => this.generateForShot(shot.id));
+        taskFactories.push(() => this.generateForShot(shot.id, videoConfig));
       }
     }
 
@@ -53,7 +56,7 @@ export class VideoService {
   /**
    * 为单个镜头生成视频
    */
-  async generateForShot(shotId: string): Promise<void> {
+  async generateForShot(shotId: string, videoConfig?: AiProviderConfig): Promise<void> {
     const shot = await this.prisma.shot.findUnique({
       where: { id: shotId },
       include: {
@@ -82,12 +85,15 @@ export class VideoService {
     }
 
     // 调用视频生成API
-    const result = await this.videoGen.generateAndWait({
-      firstFrameUrl: firstFrame.imageUrl,
-      lastFrameUrl: lastFrame?.imageUrl,
-      prompt: videoPrompt,
-      duration: shot.duration,
-    });
+    const result = await this.videoGen.generateAndWait(
+      {
+        firstFrameUrl: firstFrame.imageUrl,
+        lastFrameUrl: lastFrame?.imageUrl,
+        prompt: videoPrompt,
+        duration: shot.duration,
+      },
+      videoConfig,
+    );
 
     if (result.status === 'failed') {
       throw new Error(`Video generation failed for shot ${shotId}`);

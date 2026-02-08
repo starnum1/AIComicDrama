@@ -4,6 +4,8 @@ import { ImageGenService } from '../../providers/image-gen/image-gen.service';
 import { StorageService } from '../../providers/storage/storage.service';
 import { WsGateway } from '../../common/ws.gateway';
 import { executeBatch } from '../../common/concurrency';
+import type { ProjectAiConfigs } from '../../pipeline/pipeline.processor';
+import type { AiProviderConfig } from '../../ai-providers/ai-providers.service';
 
 @Injectable()
 export class AssetService {
@@ -16,7 +18,8 @@ export class AssetService {
     private ws: WsGateway,
   ) {}
 
-  async execute(projectId: string): Promise<void> {
+  async execute(projectId: string, aiConfigs?: ProjectAiConfigs): Promise<void> {
+    const imageConfig = aiConfigs?.imageGen;
     const characters = await this.prisma.character.findMany({
       where: { projectId },
     });
@@ -32,7 +35,7 @@ export class AssetService {
 
     for (const character of characters) {
       taskFactories.push(async () => {
-        await this.generateCharacterSheet(projectId, character);
+        await this.generateCharacterSheet(projectId, character, imageConfig);
         completedAssets++;
         this.ws.emitToProject(projectId, 'progress:detail', {
           step: 'asset',
@@ -47,7 +50,7 @@ export class AssetService {
 
     for (const scene of scenes) {
       taskFactories.push(async () => {
-        await this.generateSceneImages(projectId, scene);
+        await this.generateSceneImages(projectId, scene, imageConfig);
         completedAssets++;
         this.ws.emitToProject(projectId, 'progress:detail', {
           step: 'asset',
@@ -70,16 +73,20 @@ export class AssetService {
 
   // ==================== 角色设定图生成 ====================
 
-  private async generateCharacterSheet(projectId: string, character: any): Promise<void> {
+  private async generateCharacterSheet(
+    projectId: string,
+    character: any,
+    imageConfig?: AiProviderConfig,
+  ): Promise<void> {
     // 默认状态的设定图
-    await this.generateSingleSheet(projectId, character, null);
+    await this.generateSingleSheet(projectId, character, null, imageConfig);
 
     // 如果有状态变体（如鬼魂状态），为每个变体生成独立的设定图
     const states = character.states as Record<string, string> | null;
     if (states) {
       for (const [stateName, statePrompt] of Object.entries(states)) {
         const stateCharacter = { ...character, visualPrompt: statePrompt };
-        await this.generateSingleSheet(projectId, stateCharacter, stateName);
+        await this.generateSingleSheet(projectId, stateCharacter, stateName, imageConfig);
       }
     }
   }
@@ -88,6 +95,7 @@ export class AssetService {
     projectId: string,
     character: any,
     stateName: string | null,
+    imageConfig?: AiProviderConfig,
   ): Promise<void> {
     const prompt = this.buildCharacterSheetPrompt(character.visualPrompt);
 
@@ -96,7 +104,7 @@ export class AssetService {
       negativePrompt: `${character.visualNegative}, single view, single pose, cropped, partial body`,
       width: 1536,
       height: 1536,
-    });
+    }, imageConfig);
 
     // 下载并存储完整设定图
     const storagePath = this.storage.generatePath(projectId, 'character-sheets', 'png');
@@ -219,7 +227,11 @@ export class AssetService {
 
   // ==================== 场景锚图生成 ====================
 
-  private async generateSceneImages(projectId: string, scene: any): Promise<void> {
+  private async generateSceneImages(
+    projectId: string,
+    scene: any,
+    imageConfig?: AiProviderConfig,
+  ): Promise<void> {
     const defaultPrompt = `${scene.visualPrompt}, wide shot, establishing shot, full environment view, 16:9 aspect ratio, high quality, detailed background`;
 
     const defaultResult = await this.imageGen.generate({
@@ -227,7 +239,7 @@ export class AssetService {
       negativePrompt: scene.visualNegative,
       width: 1920,
       height: 1080,
-    });
+    }, imageConfig);
 
     const defaultPath = this.storage.generatePath(projectId, 'scenes', 'png');
     const defaultUrl = await this.storage.uploadFromUrl(defaultResult.imageUrl, defaultPath);
@@ -253,7 +265,7 @@ export class AssetService {
           referenceStrength: 0.7,
           width: 1920,
           height: 1080,
-        });
+        }, imageConfig);
 
         const variantPath = this.storage.generatePath(projectId, 'scenes', 'png');
         const variantUrl = await this.storage.uploadFromUrl(variantResult.imageUrl, variantPath);

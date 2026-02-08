@@ -41,6 +41,9 @@ let ProjectsController = class ProjectsController {
     async confirmAssets(req, id) {
         return this.projectsService.confirmAssets(req.user.sub, id);
     }
+    async continueStep(req, id) {
+        return this.projectsService.continueStep(req.user.sub, id);
+    }
     async restartStep(req, id, step) {
         return this.projectsService.restartStep(req.user.sub, id, step);
     }
@@ -138,6 +141,14 @@ __decorate([
     __metadata("design:paramtypes", [Object, String]),
     __metadata("design:returntype", Promise)
 ], ProjectsController.prototype, "confirmAssets", null);
+__decorate([
+    (0, common_1.Post)('projects/:id/pipeline/continue'),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", Promise)
+], ProjectsController.prototype, "continueStep", null);
 __decorate([
     (0, common_1.Post)('projects/:id/pipeline/restart/:step'),
     __param(0, (0, common_1.Req)()),

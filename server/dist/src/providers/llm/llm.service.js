@@ -15,19 +15,19 @@ const config_1 = require("@nestjs/config");
 let LLMService = class LLMService {
     constructor(config) {
         this.config = config;
-        this.baseUrl = config.get('LLM_BASE_URL');
-        this.apiKey = config.get('LLM_API_KEY');
-        this.model = config.get('LLM_MODEL');
+        this.defaultBaseUrl = config.get('LLM_BASE_URL');
+        this.defaultApiKey = config.get('LLM_API_KEY');
+        this.defaultModel = config.get('LLM_MODEL');
     }
-    async chat(messages, options) {
-        const response = await fetch(`${this.baseUrl}/chat/completions`, {
+    async chat(messages, options, providerConfig) {
+        const baseUrl = providerConfig?.baseUrl ?? this.defaultBaseUrl;
+        const apiKey = providerConfig?.apiKey ?? this.defaultApiKey;
+        const model = providerConfig?.model ?? this.defaultModel;
+        const response = await fetch(baseUrl + '/chat/completions', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${this.apiKey}`,
-            },
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
             body: JSON.stringify({
-                model: this.model,
+                model,
                 messages,
                 temperature: options?.temperature ?? 0.7,
                 max_tokens: options?.maxTokens ?? 16000,
@@ -36,7 +36,7 @@ let LLMService = class LLMService {
         });
         const data = await response.json();
         if (!response.ok) {
-            throw new Error(`LLM API error: ${data.error?.message || 'Unknown error'}`);
+            throw new Error('LLM API error: ' + (data.error?.message || 'Unknown error'));
         }
         return {
             content: data.choices[0].message.content,
@@ -47,29 +47,24 @@ let LLMService = class LLMService {
             },
         };
     }
-    async chatJSON(messages, options) {
+    async chatJSON(messages, options, providerConfig) {
         const maxRetries = options?.maxRetries ?? 2;
         let lastError = null;
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
             try {
-                const response = await this.chat(messages, {
-                    ...options,
-                    responseFormat: 'json',
-                });
+                const response = await this.chat(messages, { ...options, responseFormat: 'json' }, providerConfig);
                 let parsed;
                 try {
                     parsed = JSON.parse(response.content);
                 }
                 catch (parseErr) {
-                    throw new Error(`LLM 返回的 JSON 无法解析: ${parseErr.message}\n原始内容: ${response.content.slice(0, 500)}`);
+                    throw new Error('LLM JSON parse failed: ' + parseErr.message + '\nRaw: ' + response.content.slice(0, 500));
                 }
                 if (options?.schema) {
                     const result = options.schema.safeParse(parsed);
                     if (!result.success) {
-                        const issues = result.error.issues
-                            .map((i) => `  - ${i.path.join('.')}: ${i.message}`)
-                            .join('\n');
-                        throw new Error(`LLM 输出未通过 schema 校验:\n${issues}`);
+                        const issues = result.error.issues.map((i) => '  - ' + i.path.join('.') + ': ' + i.message).join('\n');
+                        throw new Error('LLM output schema validation failed:\n' + issues);
                     }
                     return { data: result.data, usage: response.usage };
                 }
@@ -80,16 +75,13 @@ let LLMService = class LLMService {
                 if (attempt < maxRetries) {
                     messages = [
                         ...messages,
-                        { role: 'assistant', content: '(上次输出有误)' },
-                        {
-                            role: 'user',
-                            content: `你上次的输出有问题：${error.message}\n请严格按照要求重新输出正确的JSON。`,
-                        },
+                        { role: 'assistant', content: '(previous output was incorrect)' },
+                        { role: 'user', content: 'Your previous output had an issue: ' + error.message + '\nPlease output correct JSON strictly.' },
                     ];
                 }
             }
         }
-        throw new Error(`LLM JSON 调用在 ${maxRetries + 1} 次尝试后仍然失败: ${lastError?.message}`);
+        throw new Error('LLM JSON call failed after ' + (maxRetries + 1) + ' attempts: ' + lastError?.message);
     }
 };
 exports.LLMService = LLMService;

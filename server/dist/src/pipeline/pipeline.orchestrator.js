@@ -60,7 +60,18 @@ let PipelineOrchestrator = PipelineOrchestrator_1 = class PipelineOrchestrator {
         await this.startFrom(projectId, nextStep);
     }
     async continueAfterAssetReview(projectId) {
-        await this.startFrom(projectId, 'storyboard');
+        await this.continueAfterReview(projectId);
+    }
+    async continueAfterReview(projectId) {
+        const project = await this.prisma.project.findUnique({
+            where: { id: projectId },
+            select: { currentStep: true },
+        });
+        if (!project?.currentStep) {
+            throw new Error('项目当前步骤为空，无法继续');
+        }
+        const currentStep = project.currentStep;
+        await this.scheduleNextStep(projectId, currentStep);
     }
     async restartFrom(projectId, fromStep) {
         await this.clearOutputsFrom(projectId, fromStep);

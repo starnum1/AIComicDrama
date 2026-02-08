@@ -7,6 +7,7 @@ import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import type { ProjectAiConfigs } from '../../pipeline/pipeline.processor';
 
 const execFileAsync = promisify(execFile);
 
@@ -20,7 +21,7 @@ export class AssemblyService {
     private ws: WsGateway,
   ) {}
 
-  async execute(projectId: string): Promise<void> {
+  async execute(projectId: string, _aiConfigs?: ProjectAiConfigs): Promise<void> {
     const episodes = await this.prisma.episode.findMany({
       where: { projectId },
       include: {

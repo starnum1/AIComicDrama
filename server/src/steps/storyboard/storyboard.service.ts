@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
 import { LLMService } from '../../providers/llm/llm.service';
 import { WsGateway } from '../../common/ws.gateway';
+import type { ProjectAiConfigs } from '../../pipeline/pipeline.processor';
 
 interface StoryboardResult {
   shots: {
@@ -35,7 +36,8 @@ export class StoryboardService {
     private ws: WsGateway,
   ) {}
 
-  async execute(projectId: string): Promise<void> {
+  async execute(projectId: string, aiConfigs?: ProjectAiConfigs): Promise<void> {
+    const llmConfig = aiConfigs?.llm;
     const episodes = await this.prisma.episode.findMany({
       where: { projectId },
       orderBy: { sortOrder: 'asc' },
@@ -62,7 +64,7 @@ export class StoryboardService {
         entityId: episode.id,
       });
 
-      const shotCount = await this.generateForEpisode(projectId, episode, characters, scenes);
+      const shotCount = await this.generateForEpisode(projectId, episode, characters, scenes, llmConfig);
 
       this.ws.emitToProject(projectId, 'storyboard:episode:complete', {
         episodeId: episode.id,
@@ -77,6 +79,7 @@ export class StoryboardService {
     episode: any,
     characters: any[],
     scenes: any[],
+    llmConfig?: import('../../ai-providers/ai-providers.service').AiProviderConfig,
   ): Promise<number> {
     const systemPrompt = this.buildSystemPrompt();
     const userPrompt = this.buildUserPrompt(episode, characters, scenes);
@@ -90,6 +93,7 @@ export class StoryboardService {
         temperature: 0.7,
         maxTokens: 16000,
       },
+      llmConfig,
     );
 
     // 构建名称到ID的映射

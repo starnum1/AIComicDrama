@@ -1,7 +1,8 @@
 import { ref, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useProjectStore } from '@/stores/project'
-import type { WsServerEvent, WsClientEvent } from '@aicomic/shared'
+import { PIPELINE_STEP_LABELS } from '@aicomic/shared'
+import type { WsServerEvent, WsClientEvent, PipelineStep } from '@aicomic/shared'
 
 const WS_BASE_URL = 'ws://localhost:3000/ws'
 
@@ -63,18 +64,24 @@ export function useWebSocket() {
 
     switch (message.event) {
       // ===== 步骤级事件 =====
-      case 'step:start':
+      case 'step:start': {
+        const startLabel = PIPELINE_STEP_LABELS[message.data.step as PipelineStep] || message.data.step
         projectStore.setCurrentStep(message.data.step)
-        ElMessage.info(`正在执行: ${message.data.step}`)
+        ElMessage.info(`正在执行: ${startLabel}`)
         break
-      case 'step:complete':
+      }
+      case 'step:complete': {
+        const completeLabel = PIPELINE_STEP_LABELS[message.data.step as PipelineStep] || message.data.step
         projectStore.markStepComplete(message.data.step)
-        ElMessage.success(`步骤完成: ${message.data.step}`)
+        ElMessage.success(`步骤完成: ${completeLabel}`)
         break
-      case 'step:need_review':
+      }
+      case 'step:need_review': {
+        const reviewLabel = PIPELINE_STEP_LABELS[message.data.step as PipelineStep] || message.data.step
         projectStore.setNeedReview(message.data.step)
-        ElMessage.warning('资产已生成，请审核后继续')
+        ElMessage.warning(`「${reviewLabel}」已完成，请确认后继续下一步`)
         break
+      }
       case 'step:failed':
         projectStore.setStepFailed(message.data.step, message.data.error)
         ElMessage.error({

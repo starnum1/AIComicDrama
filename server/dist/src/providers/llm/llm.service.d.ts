@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import type { AiProviderConfig } from '../../ai-providers/ai-providers.service';
 export interface LLMChatMessage {
     role: 'system' | 'user' | 'assistant';
     content: string;
@@ -13,21 +14,21 @@ export interface LLMResponse {
 }
 export declare class LLMService {
     private config;
-    private baseUrl;
-    private apiKey;
-    private model;
+    private defaultBaseUrl;
+    private defaultApiKey;
+    private defaultModel;
     constructor(config: ConfigService);
     chat(messages: LLMChatMessage[], options?: {
         temperature?: number;
         maxTokens?: number;
         responseFormat?: 'json' | 'text';
-    }): Promise<LLMResponse>;
+    }, providerConfig?: AiProviderConfig): Promise<LLMResponse>;
     chatJSON<T>(messages: LLMChatMessage[], options?: {
         temperature?: number;
         maxTokens?: number;
         schema?: import('zod').ZodType<T>;
         maxRetries?: number;
-    }): Promise<{
+    }, providerConfig?: AiProviderConfig): Promise<{
         data: T;
         usage: LLMResponse['usage'];
     }>;

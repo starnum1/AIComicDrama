@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
 import { CommonModule } from './common/common.module';
 import { ProvidersModule } from './providers/providers.module';
+import { AiProvidersModule } from './ai-providers/ai-providers.module';
 import { PipelineModule } from './pipeline/pipeline.module';
 import { AuthModule } from './auth/auth.module';
 import { ProjectsModule } from './projects/projects.module';
@@ -29,6 +30,9 @@ import { BillingModule } from './billing/billing.module';
 
     // AI 供应商适配层（LLM, ImageGen, VideoGen, Storage — 全局）
     ProvidersModule,
+
+    // AI 服务商配置模块（用户自定义的 AI 配置 — 全局）
+    AiProvidersModule,
 
     // 流水线模块（编排器 + 处理器 + 所有步骤服务）
     PipelineModule,

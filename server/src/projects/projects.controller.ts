@@ -60,6 +60,11 @@ export class ProjectsController {
     return this.projectsService.confirmAssets(req.user.sub, id);
   }
 
+  @Post('projects/:id/pipeline/continue')
+  async continueStep(@Req() req: any, @Param('id') id: string) {
+    return this.projectsService.continueStep(req.user.sub, id);
+  }
+
   @Post('projects/:id/pipeline/restart/:step')
   async restartStep(
     @Req() req: any,

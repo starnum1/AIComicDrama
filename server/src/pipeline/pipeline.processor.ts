@@ -2,6 +2,8 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { PrismaService } from '../common/prisma.service';
+import { AiProvidersService } from '../ai-providers/ai-providers.service';
+import type { AiProviderConfig } from '../ai-providers/ai-providers.service';
 import { AnalysisService } from '../steps/analysis/analysis.service';
 import { AssetService } from '../steps/asset/asset.service';
 import { StoryboardService } from '../steps/storyboard/storyboard.service';
@@ -12,14 +14,19 @@ import { WsGateway } from '../common/ws.gateway';
 import { PipelineOrchestrator, PipelineJobData } from './pipeline.orchestrator';
 import { PipelineStep, PIPELINE_REVIEW_STEPS } from '@aicomic/shared';
 
-@Processor('pipeline', {
-  concurrency: 2,
-})
+export interface ProjectAiConfigs {
+  llm?: AiProviderConfig;
+  imageGen?: AiProviderConfig;
+  videoGen?: AiProviderConfig;
+}
+
+@Processor('pipeline', { concurrency: 2 })
 export class PipelineProcessor extends WorkerHost {
   private readonly logger = new Logger(PipelineProcessor.name);
 
   constructor(
     private prisma: PrismaService,
+    private aiProvidersService: AiProvidersService,
     private orchestrator: PipelineOrchestrator,
     private analysisService: AnalysisService,
     private assetService: AssetService,
@@ -34,12 +41,8 @@ export class PipelineProcessor extends WorkerHost {
 
   async process(job: Job<PipelineJobData>): Promise<void> {
     const { projectId, step } = job.data;
+    this.logger.log(`Processing: Project ${projectId} - Step ${step} (attempt ${job.attemptsMade + 1})`);
 
-    this.logger.log(
-      `Processing: Project ${projectId} - Step ${step} (attempt ${job.attemptsMade + 1})`,
-    );
-
-    // 更新项目状态
     await this.prisma.project.update({
       where: { id: projectId },
       data: { currentStep: step, status: `${step}_processing` },
@@ -47,55 +50,41 @@ export class PipelineProcessor extends WorkerHost {
     this.ws.emitToProject(projectId, 'step:start', { step });
 
     try {
-      // ========== 幂等性保障：执行前清理该步骤已有的输出数据 ==========
+      const aiConfigs = await this.aiProvidersService.resolveProjectAiConfigs(projectId);
+      this.logger.log(`AI configs: LLM=${aiConfigs.llm ? 'custom' : 'system'}, Image=${aiConfigs.imageGen ? 'custom' : 'system'}, Video=${aiConfigs.videoGen ? 'custom' : 'system'}`);
+
       await this.clearStepOutput(projectId, step);
+      await this.executeStep(projectId, step, aiConfigs);
 
-      // 执行实际的 AI 任务
-      await this.executeStep(projectId, step);
-
-      // 通知前端步骤完成
       this.ws.emitToProject(projectId, 'step:complete', { step });
       this.logger.log(`Completed: Project ${projectId} - Step ${step}`);
 
-      // 需要用户确认的步骤，暂停流水线
       if (PIPELINE_REVIEW_STEPS.includes(step)) {
         await this.prisma.project.update({
           where: { id: projectId },
-          data: { status: 'asset_review' },
+          data: { status: `${step}_review` },
         });
         this.ws.emitToProject(projectId, 'step:need_review', { step });
         return;
       }
 
-      // 自动投递下一步骤
       await this.orchestrator.scheduleNextStep(projectId, step);
     } catch (error) {
       const errorMsg = (error as Error).message;
       const maxAttempts = job.opts?.attempts ?? 1;
       const isLastAttempt = job.attemptsMade + 1 >= maxAttempts;
 
-      this.logger.error(
-        `Failed: Project ${projectId} - Step ${step} ` +
-        `(attempt ${job.attemptsMade + 1}/${maxAttempts}): ${errorMsg}`,
-      );
+      this.logger.error(`Failed: Project ${projectId} - Step ${step} (attempt ${job.attemptsMade + 1}/${maxAttempts}): ${errorMsg}`);
 
       if (isLastAttempt) {
-        // 最终失败：更新数据库状态 + 通知前端
         this.logger.error(`Final failure for Project ${projectId} - Step ${step}`);
         await this.prisma.project.update({
           where: { id: projectId },
           data: { status: 'failed', currentStep: step },
         });
-        this.ws.emitToProject(projectId, 'step:failed', {
-          step,
-          error: errorMsg,
-        });
+        this.ws.emitToProject(projectId, 'step:failed', { step, error: errorMsg });
       } else {
-        // 中间重试：只通知前端正在重试（不标记为失败）
-        this.logger.warn(
-          `Will retry Project ${projectId} - Step ${step} ` +
-          `(${maxAttempts - job.attemptsMade - 1} retries left)`,
-        );
+        this.logger.warn(`Will retry Project ${projectId} - Step ${step} (${maxAttempts - job.attemptsMade - 1} retries left)`);
         this.ws.emitToProject(projectId, 'progress:detail', {
           step,
           message: `步骤失败，正在重试 (${job.attemptsMade + 1}/${maxAttempts})...`,
@@ -104,77 +93,46 @@ export class PipelineProcessor extends WorkerHost {
         });
       }
 
-      throw error; // 让 BullMQ 处理重试
+      throw error;
     }
   }
 
-  private async executeStep(projectId: string, step: PipelineStep): Promise<void> {
+  private async executeStep(projectId: string, step: PipelineStep, aiConfigs: ProjectAiConfigs): Promise<void> {
     switch (step) {
-      case 'analysis':
-        return this.analysisService.execute(projectId);
-      case 'asset':
-        return this.assetService.execute(projectId);
-      case 'storyboard':
-        return this.storyboardService.execute(projectId);
-      case 'anchor':
-        return this.anchorService.execute(projectId);
-      case 'video':
-        return this.videoService.execute(projectId);
-      case 'assembly':
-        return this.assemblyService.execute(projectId);
+      case 'analysis': return this.analysisService.execute(projectId, aiConfigs);
+      case 'asset': return this.assetService.execute(projectId, aiConfigs);
+      case 'storyboard': return this.storyboardService.execute(projectId, aiConfigs);
+      case 'anchor': return this.anchorService.execute(projectId, aiConfigs);
+      case 'video': return this.videoService.execute(projectId, aiConfigs);
+      case 'assembly': return this.assemblyService.execute(projectId, aiConfigs);
     }
   }
 
-  /**
-   * 幂等性保障：清理指定步骤已有的输出数据
-   */
   private async clearStepOutput(projectId: string, step: PipelineStep): Promise<void> {
     this.logger.log(`Clearing existing output for step: ${step}`);
-
     switch (step) {
       case 'analysis':
         await this.prisma.episode.deleteMany({ where: { projectId } });
         await this.prisma.character.deleteMany({ where: { projectId } });
         await this.prisma.scene.deleteMany({ where: { projectId } });
         break;
-
       case 'asset':
-        await this.prisma.characterImage.deleteMany({
-          where: { character: { projectId } },
-        });
-        await this.prisma.characterSheet.deleteMany({
-          where: { character: { projectId } },
-        });
-        await this.prisma.sceneImage.deleteMany({
-          where: { scene: { projectId } },
-        });
+        await this.prisma.characterImage.deleteMany({ where: { character: { projectId } } });
+        await this.prisma.characterSheet.deleteMany({ where: { character: { projectId } } });
+        await this.prisma.sceneImage.deleteMany({ where: { scene: { projectId } } });
         break;
-
       case 'storyboard':
-        await this.prisma.shotCharacter.deleteMany({
-          where: { shot: { episode: { projectId } } },
-        });
-        await this.prisma.shot.deleteMany({
-          where: { episode: { projectId } },
-        });
+        await this.prisma.shotCharacter.deleteMany({ where: { shot: { episode: { projectId } } } });
+        await this.prisma.shot.deleteMany({ where: { episode: { projectId } } });
         break;
-
       case 'anchor':
-        await this.prisma.shotImage.deleteMany({
-          where: { shot: { episode: { projectId } } },
-        });
+        await this.prisma.shotImage.deleteMany({ where: { shot: { episode: { projectId } } } });
         break;
-
       case 'video':
-        await this.prisma.shotVideo.deleteMany({
-          where: { shot: { episode: { projectId } } },
-        });
+        await this.prisma.shotVideo.deleteMany({ where: { shot: { episode: { projectId } } } });
         break;
-
       case 'assembly':
-        await this.prisma.finalVideo.deleteMany({
-          where: { episode: { projectId } },
-        });
+        await this.prisma.finalVideo.deleteMany({ where: { episode: { projectId } } });
         break;
     }
   }

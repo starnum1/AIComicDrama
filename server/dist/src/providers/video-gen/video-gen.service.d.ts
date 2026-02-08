@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import type { AiProviderConfig } from '../../ai-providers/ai-providers.service';
 export interface VideoGenRequest {
     firstFrameUrl: string;
     lastFrameUrl?: string;
@@ -15,11 +16,11 @@ export interface VideoGenResult {
 }
 export declare class VideoGenService {
     private config;
-    private baseUrl;
-    private apiKey;
-    private model;
+    private defaultBaseUrl;
+    private defaultApiKey;
+    private defaultModel;
     constructor(config: ConfigService);
-    submit(request: VideoGenRequest): Promise<VideoGenResponse>;
-    getResult(taskId: string): Promise<VideoGenResult>;
-    generateAndWait(request: VideoGenRequest, pollIntervalMs?: number, timeoutMs?: number): Promise<VideoGenResult>;
+    submit(request: VideoGenRequest, providerConfig?: AiProviderConfig): Promise<VideoGenResponse>;
+    getResult(taskId: string, providerConfig?: AiProviderConfig): Promise<VideoGenResult>;
+    generateAndWait(request: VideoGenRequest, providerConfig?: AiProviderConfig, pollIntervalMs?: number, timeoutMs?: number): Promise<VideoGenResult>;
 }

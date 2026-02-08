@@ -20,6 +20,9 @@ export declare class ProjectsController {
         userId: string;
         status: string;
         currentStep: string;
+        llmProviderId: string | null;
+        imageProviderId: string | null;
+        videoProviderId: string | null;
     }>;
     getProject(req: any, id: string): Promise<{
         novel: {
@@ -40,6 +43,9 @@ export declare class ProjectsController {
         userId: string;
         status: string;
         currentStep: string;
+        llmProviderId: string | null;
+        imageProviderId: string | null;
+        videoProviderId: string | null;
     }>;
     deleteProject(req: any, id: string): Promise<{
         success: boolean;
@@ -58,6 +64,10 @@ export declare class ProjectsController {
         success: boolean;
         message: string;
     }>;
+    continueStep(req: any, id: string): Promise<{
+        success: boolean;
+        message: string;
+    }>;
     restartStep(req: any, id: string, step: string): Promise<{
         success: boolean;
         message: string;
@@ -71,16 +81,16 @@ export declare class ProjectsController {
             id: string;
             createdAt: Date;
             imageUrl: string;
-            characterId: string;
             stateName: string | null;
             gridSpec: string;
+            characterId: string;
         }[];
         images: {
             id: string;
             createdAt: Date;
             imageUrl: string;
-            characterId: string;
             stateName: string | null;
+            characterId: string;
             imageType: string;
             cropRegion: import("@prisma/client/runtime/client").JsonValue | null;
             sheetId: string | null;
@@ -110,8 +120,8 @@ export declare class ProjectsController {
         id: string;
         createdAt: Date;
         imageUrl: string;
-        characterId: string;
         stateName: string | null;
+        characterId: string;
         imageType: string;
         cropRegion: import("@prisma/client/runtime/client").JsonValue | null;
         sheetId: string | null;
@@ -133,11 +143,11 @@ export declare class ProjectsController {
         createdAt: Date;
         updatedAt: Date;
         projectId: string;
-        originalText: string;
         sortOrder: number;
         episodeNumber: number;
         title: string;
         summary: string;
+        originalText: string;
         characterIds: import("@prisma/client/runtime/client").JsonValue;
         sceneIds: import("@prisma/client/runtime/client").JsonValue;
         emotionCurve: string | null;
@@ -151,11 +161,11 @@ export declare class ProjectsController {
         createdAt: Date;
         updatedAt: Date;
         projectId: string;
-        originalText: string;
         sortOrder: number;
         episodeNumber: number;
         title: string;
         summary: string;
+        originalText: string;
         characterIds: import("@prisma/client/runtime/client").JsonValue;
         sceneIds: import("@prisma/client/runtime/client").JsonValue;
         emotionCurve: string | null;
@@ -166,16 +176,16 @@ export declare class ProjectsController {
             id: string;
             createdAt: Date;
             imageUrl: string;
-            characterId: string;
             stateName: string | null;
             gridSpec: string;
+            characterId: string;
         }[];
         images: {
             id: string;
             createdAt: Date;
             imageUrl: string;
-            characterId: string;
             stateName: string | null;
+            characterId: string;
             imageType: string;
             cropRegion: import("@prisma/client/runtime/client").JsonValue | null;
             sheetId: string | null;
@@ -199,8 +209,8 @@ export declare class ProjectsController {
             id: string;
             createdAt: Date;
             imageUrl: string;
-            sceneId: string;
             variant: string;
+            sceneId: string;
         }[];
     } & {
         id: string;

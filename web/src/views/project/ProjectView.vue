@@ -3,7 +3,9 @@ import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useProjectStore } from '@/stores/project'
 import { useWebSocket } from '@/composables/useWebSocket'
-import { PIPELINE_STEP_ORDER } from '@aicomic/shared'
+import { PIPELINE_STEP_ORDER, PIPELINE_STEP_LABELS } from '@aicomic/shared'
+import type { PipelineStep } from '@aicomic/shared'
+import { ElMessage } from 'element-plus'
 import axios from 'axios'
 
 const route = useRoute()
@@ -37,14 +39,83 @@ function navigateTo(item: (typeof stepNavItems)[number]) {
   }
 }
 
+// ===== 步骤确认相关 =====
+const continuing = ref(false)
+
+const isWaitingForConfirm = computed(() =>
+  projectStore.projectStatus?.endsWith('_review') ?? false
+)
+
+const currentReviewStepName = computed(() => {
+  const status = projectStore.projectStatus
+  if (!status?.endsWith('_review')) return ''
+  const step = status.replace('_review', '') as PipelineStep
+  return PIPELINE_STEP_LABELS[step] || step
+})
+
+const nextStepName = computed(() => {
+  const status = projectStore.projectStatus
+  if (!status?.endsWith('_review')) return ''
+  const step = status.replace('_review', '') as PipelineStep
+  const currentIndex = PIPELINE_STEP_ORDER.indexOf(step)
+  const nextIndex = currentIndex + 1
+  if (nextIndex >= PIPELINE_STEP_ORDER.length) return '完成'
+  return PIPELINE_STEP_LABELS[PIPELINE_STEP_ORDER[nextIndex]] || PIPELINE_STEP_ORDER[nextIndex]
+})
+
+const isLastStep = computed(() => {
+  const status = projectStore.projectStatus
+  if (!status?.endsWith('_review')) return false
+  const step = status.replace('_review', '') as PipelineStep
+  const currentIndex = PIPELINE_STEP_ORDER.indexOf(step)
+  return currentIndex >= PIPELINE_STEP_ORDER.length - 1
+})
+
+async function continueStep() {
+  continuing.value = true
+  try {
+    const token = localStorage.getItem('token')
+    await axios.post(
+      `/api/projects/${projectId.value}/pipeline/continue`,
+      {},
+      { headers: { Authorization: `Bearer ${token}` } },
+    )
+    ElMessage.success('已确认，继续执行下一步')
+  } catch (err: any) {
+    const msg = err.response?.data?.message || err.message || '操作失败'
+    ElMessage.error(msg)
+  } finally {
+    continuing.value = false
+  }
+}
+
 function getStatusColor(status: string) {
+  if (status?.endsWith('_review')) return '#fdcb6e'
+  if (status?.endsWith('_processing')) return '#6c5ce7'
   const map: Record<string, string> = {
-    created: '#a0a0b8', analyzing: '#6c5ce7', assets_generating: '#a29bfe',
-    asset_review: '#fdcb6e', storyboarding: '#00cec9', anchoring: '#74b9ff',
-    video_generating: '#fd79a8', assembling: '#e17055',
-    completed: '#00b894', failed: '#d63031',
+    created: '#a0a0b8',
+    completed: '#00b894',
+    failed: '#d63031',
   }
   return map[status] || '#a0a0b8'
+}
+
+function getStatusLabel(status: string) {
+  if (!status) return '已创建'
+  if (status?.endsWith('_review')) {
+    const step = status.replace('_review', '') as PipelineStep
+    return `${PIPELINE_STEP_LABELS[step] || step} - 待确认`
+  }
+  if (status?.endsWith('_processing')) {
+    const step = status.replace('_processing', '') as PipelineStep
+    return `${PIPELINE_STEP_LABELS[step] || step} - 执行中`
+  }
+  const map: Record<string, string> = {
+    created: '已创建',
+    completed: '已完成',
+    failed: '失败',
+  }
+  return map[status] || status
 }
 
 onMounted(async () => {
@@ -82,9 +153,9 @@ onUnmounted(() => {
         </button>
         <div class="divider"></div>
         <h1 class="project-name">{{ projectStore.projectName }}</h1>
-        <div class="status-dot" :style="{ background: getStatusColor(projectStore.status) }"></div>
-        <span class="status-text" :style="{ color: getStatusColor(projectStore.status) }">
-          {{ projectStore.status }}
+        <div class="status-dot" :style="{ background: getStatusColor(projectStore.projectStatus) }"></div>
+        <span class="status-text" :style="{ color: getStatusColor(projectStore.projectStatus) }">
+          {{ getStatusLabel(projectStore.projectStatus) }}
         </span>
       </div>
       <div class="topbar-right">
@@ -129,6 +200,32 @@ onUnmounted(() => {
           color="#6c5ce7"
           style="flex:1; max-width: 300px"
         />
+      </div>
+    </div>
+
+    <!-- 步骤确认条 -->
+    <div v-if="isWaitingForConfirm" class="confirm-strip">
+      <div class="confirm-inner">
+        <div class="confirm-info">
+          <el-icon :size="18"><CircleCheck /></el-icon>
+          <span class="confirm-msg">
+            「{{ currentReviewStepName }}」已完成，请查看结果后继续
+          </span>
+        </div>
+        <button
+          v-if="!isLastStep"
+          class="btn-continue"
+          :disabled="continuing"
+          @click="continueStep"
+        >
+          <span v-if="continuing" class="loading-spinner-sm"></span>
+          <el-icon v-else><Right /></el-icon>
+          {{ continuing ? '执行中...' : `继续执行「${nextStepName}」` }}
+        </button>
+        <span v-else class="complete-badge">
+          <el-icon><SuccessFilled /></el-icon>
+          全部步骤已完成
+        </span>
       </div>
     </div>
 
@@ -376,6 +473,91 @@ onUnmounted(() => {
   flex-shrink: 0;
   z-index: 10;
   position: relative;
+}
+
+/* 步骤确认条 */
+.confirm-strip {
+  background: rgba(253, 203, 110, 0.08);
+  border-bottom: 1px solid rgba(253, 203, 110, 0.2);
+  padding: 10px 24px;
+  flex-shrink: 0;
+  z-index: 10;
+  position: relative;
+}
+
+.confirm-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.confirm-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #fdcb6e;
+}
+
+.confirm-msg {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.btn-continue {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  background: linear-gradient(135deg, #00b894, #00cec9);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+  font-family: inherit;
+  white-space: nowrap;
+  box-shadow: 0 0 12px rgba(0, 206, 201, 0.2);
+}
+
+.btn-continue:hover:not(:disabled) {
+  box-shadow: 0 0 20px rgba(0, 206, 201, 0.4);
+  transform: translateY(-1px);
+}
+
+.btn-continue:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.loading-spinner-sm {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.complete-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  background: rgba(0, 184, 148, 0.12);
+  color: #00b894;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 /* 内容区 */

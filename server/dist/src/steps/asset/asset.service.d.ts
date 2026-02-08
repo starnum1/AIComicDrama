@@ -2,6 +2,7 @@ import { PrismaService } from '../../common/prisma.service';
 import { ImageGenService } from '../../providers/image-gen/image-gen.service';
 import { StorageService } from '../../providers/storage/storage.service';
 import { WsGateway } from '../../common/ws.gateway';
+import type { ProjectAiConfigs } from '../../pipeline/pipeline.processor';
 export declare class AssetService {
     private prisma;
     private imageGen;
@@ -9,7 +10,7 @@ export declare class AssetService {
     private ws;
     private readonly logger;
     constructor(prisma: PrismaService, imageGen: ImageGenService, storage: StorageService, ws: WsGateway);
-    execute(projectId: string): Promise<void>;
+    execute(projectId: string, aiConfigs?: ProjectAiConfigs): Promise<void>;
     private generateCharacterSheet;
     private generateSingleSheet;
     private buildCharacterSheetPrompt;

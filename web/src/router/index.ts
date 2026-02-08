@@ -62,6 +62,12 @@ const routes = [
     component: () => import('@/views/billing/BillingView.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    path: '/settings/ai-providers',
+    name: 'AiProviders',
+    component: () => import('@/views/settings/AiProvidersView.vue'),
+    meta: { requiresAuth: true },
+  },
 ]
 
 const router = createRouter({

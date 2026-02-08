@@ -4,6 +4,8 @@ import { ImageGenService } from '../../providers/image-gen/image-gen.service';
 import { StorageService } from '../../providers/storage/storage.service';
 import { WsGateway } from '../../common/ws.gateway';
 import { executeBatch } from '../../common/concurrency';
+import type { ProjectAiConfigs } from '../../pipeline/pipeline.processor';
+import type { AiProviderConfig } from '../../ai-providers/ai-providers.service';
 
 @Injectable()
 export class AnchorService {
@@ -16,7 +18,8 @@ export class AnchorService {
     private ws: WsGateway,
   ) {}
 
-  async execute(projectId: string): Promise<void> {
+  async execute(projectId: string, aiConfigs?: ProjectAiConfigs): Promise<void> {
+    const imageConfig = aiConfigs?.imageGen;
     const episodes = await this.prisma.episode.findMany({
       where: { projectId },
       include: {
@@ -36,7 +39,7 @@ export class AnchorService {
 
     for (const episode of episodes) {
       for (const shot of episode.shots) {
-        taskFactories.push(() => this.generateForShot(shot.id));
+        taskFactories.push(() => this.generateForShot(shot.id, imageConfig));
       }
     }
 
@@ -56,7 +59,7 @@ export class AnchorService {
   /**
    * 为单个镜头生成首帧和尾帧
    */
-  async generateForShot(shotId: string): Promise<void> {
+  async generateForShot(shotId: string, imageConfig?: AiProviderConfig): Promise<void> {
     const shot = await this.prisma.shot.findUnique({
       where: { id: shotId },
       include: {
@@ -99,7 +102,7 @@ export class AnchorService {
       referenceStrength,
       width: 1920,
       height: 1080,
-    });
+    }, imageConfig);
 
     const firstFramePath = this.storage.generatePath(shot.episode.projectId, 'anchors', 'png');
     const firstFrameUrl = await this.storage.uploadFromUrl(
@@ -123,7 +126,7 @@ export class AnchorService {
       referenceStrength,
       width: 1920,
       height: 1080,
-    });
+    }, imageConfig);
 
     const lastFramePath = this.storage.generatePath(shot.episode.projectId, 'anchors', 'png');
     const lastFrameUrl = await this.storage.uploadFromUrl(

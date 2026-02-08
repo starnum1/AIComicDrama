@@ -71,10 +71,26 @@ export class PipelineOrchestrator {
   }
 
   /**
-   * 用户确认资产后，继续执行后续步骤
+   * 用户确认资产后，继续执行后续步骤（保留向后兼容）
    */
   async continueAfterAssetReview(projectId: string): Promise<void> {
-    await this.startFrom(projectId, 'storyboard');
+    await this.continueAfterReview(projectId);
+  }
+
+  /**
+   * 用户确认当前步骤结果后，继续执行下一步骤（通用方法）
+   */
+  async continueAfterReview(projectId: string): Promise<void> {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { currentStep: true },
+    });
+    if (!project?.currentStep) {
+      throw new Error('项目当前步骤为空，无法继续');
+    }
+
+    const currentStep = project.currentStep as PipelineStep;
+    await this.scheduleNextStep(projectId, currentStep);
   }
 
   /**
