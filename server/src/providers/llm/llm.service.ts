@@ -1,5 +1,4 @@
-﻿import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable } from '@nestjs/common';
 import type { AiProviderConfig } from '../../ai-providers/ai-providers.service';
 
 export interface LLMChatMessage {
@@ -14,14 +13,11 @@ export interface LLMResponse {
 
 @Injectable()
 export class LLMService {
-  private defaultBaseUrl: string;
-  private defaultApiKey: string;
-  private defaultModel: string;
-
-  constructor(private config: ConfigService) {
-    this.defaultBaseUrl = config.get('LLM_BASE_URL')!;
-    this.defaultApiKey = config.get('LLM_API_KEY')!;
-    this.defaultModel = config.get('LLM_MODEL')!;
+  private resolveConfig(providerConfig?: AiProviderConfig) {
+    if (!providerConfig) {
+      throw new Error('未配置 LLM 服务。请在「AI 服务配置」中添加一个 llm 类型的 Provider 并设为默认。');
+    }
+    return providerConfig;
   }
 
   async chat(
@@ -29,9 +25,8 @@ export class LLMService {
     options?: { temperature?: number; maxTokens?: number; responseFormat?: 'json' | 'text' },
     providerConfig?: AiProviderConfig,
   ): Promise<LLMResponse> {
-    const baseUrl = providerConfig?.baseUrl ?? this.defaultBaseUrl;
-    const apiKey = providerConfig?.apiKey ?? this.defaultApiKey;
-    const model = providerConfig?.model ?? this.defaultModel;
+    const config = this.resolveConfig(providerConfig);
+    const { baseUrl, apiKey, model } = config;
 
     const response = await fetch(baseUrl + '/chat/completions', {
       method: 'POST',

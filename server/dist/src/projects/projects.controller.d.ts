@@ -3,46 +3,46 @@ export declare class ProjectsController {
     private projectsService;
     constructor(projectsService: ProjectsService);
     listProjects(req: any): Promise<{
+        status: string;
         id: string;
         createdAt: Date;
         updatedAt: Date;
         name: string;
-        status: string;
         currentStep: string;
     }[]>;
     createProject(req: any, body: {
         name: string;
     }): Promise<{
+        status: string;
         id: string;
         createdAt: Date;
         updatedAt: Date;
         name: string;
         userId: string;
-        status: string;
         currentStep: string;
         llmProviderId: string | null;
         imageProviderId: string | null;
         videoProviderId: string | null;
     }>;
     getProject(req: any, id: string): Promise<{
-        novel: {
-            id: string;
-            createdAt: Date;
-            originalText: string;
-            charCount: number;
-        } | null;
         _count: {
             characters: number;
-            scenes: number;
             episodes: number;
+            scenes: number;
         };
+        novel: {
+            id: string;
+            originalText: string;
+            createdAt: Date;
+            charCount: number;
+        } | null;
     } & {
+        status: string;
         id: string;
         createdAt: Date;
         updatedAt: Date;
         name: string;
         userId: string;
-        status: string;
         currentStep: string;
         llmProviderId: string | null;
         imageProviderId: string | null;
@@ -87,7 +87,97 @@ export declare class ProjectsController {
         success: boolean;
         message: string;
     }>;
+    getProjectAssets(req: any, id: string): Promise<{
+        characters: ({
+            images: {
+                id: string;
+                createdAt: Date;
+                imageType: string;
+                imageUrl: string;
+                characterId: string;
+                sheetId: string | null;
+                cropRegion: import("@prisma/client/runtime/client").JsonValue | null;
+                stateName: string | null;
+            }[];
+            sheets: {
+                id: string;
+                createdAt: Date;
+                imageUrl: string;
+                characterId: string;
+                stateName: string | null;
+                gridSpec: string;
+            }[];
+        } & {
+            id: string;
+            projectId: string;
+            sortOrder: number;
+            createdAt: Date;
+            updatedAt: Date;
+            name: string;
+            description: string;
+            visualPrompt: string;
+            visualNegative: string;
+            voiceDesc: string | null;
+            states: import("@prisma/client/runtime/client").JsonValue | null;
+            episodeIds: import("@prisma/client/runtime/client").JsonValue;
+        })[];
+        scenes: ({
+            images: {
+                id: string;
+                createdAt: Date;
+                sceneId: string;
+                imageUrl: string;
+                variant: string;
+            }[];
+        } & {
+            id: string;
+            projectId: string;
+            sortOrder: number;
+            createdAt: Date;
+            updatedAt: Date;
+            name: string;
+            description: string;
+            visualPrompt: string;
+            visualNegative: string;
+            episodeIds: import("@prisma/client/runtime/client").JsonValue;
+            variants: import("@prisma/client/runtime/client").JsonValue | null;
+        })[];
+    }>;
+    generateCharacterImage(req: any, id: string, characterId: string, body: {
+        imageProviderId?: string;
+    }): Promise<{
+        id: string;
+        imageUrl: string;
+    }>;
+    generateSceneImage(req: any, id: string, sceneId: string, body: {
+        variant?: string;
+        imageProviderId?: string;
+    }): Promise<{
+        id: string;
+        imageUrl: string;
+    }>;
+    generateAllAssets(req: any, id: string, body: {
+        imageProviderId?: string;
+    }): Promise<{
+        generated: number;
+    }>;
+    deleteCharacterSheet(req: any, id: string): Promise<{
+        success: boolean;
+    }>;
+    deleteSceneImage(req: any, id: string): Promise<{
+        success: boolean;
+    }>;
     getCharacterSheets(req: any, id: string): Promise<({
+        images: {
+            id: string;
+            createdAt: Date;
+            imageType: string;
+            imageUrl: string;
+            characterId: string;
+            sheetId: string | null;
+            cropRegion: import("@prisma/client/runtime/client").JsonValue | null;
+            stateName: string | null;
+        }[];
         sheets: {
             id: string;
             createdAt: Date;
@@ -96,54 +186,27 @@ export declare class ProjectsController {
             stateName: string | null;
             gridSpec: string;
         }[];
-        images: {
-            id: string;
-            createdAt: Date;
-            imageUrl: string;
-            characterId: string;
-            sheetId: string | null;
-            imageType: string;
-            cropRegion: import("@prisma/client/runtime/client").JsonValue | null;
-            stateName: string | null;
-        }[];
     } & {
         id: string;
+        projectId: string;
+        sortOrder: number;
         createdAt: Date;
         updatedAt: Date;
         name: string;
-        projectId: string;
         description: string;
         visualPrompt: string;
         visualNegative: string;
         voiceDesc: string | null;
         states: import("@prisma/client/runtime/client").JsonValue | null;
         episodeIds: import("@prisma/client/runtime/client").JsonValue;
-        sortOrder: number;
     })[]>;
-    regenerateSheet(req: any, id: string): Promise<{
-        success: boolean;
-        message: string;
-    }>;
-    cropSheet(req: any, id: string, body: {
-        imageType: string;
-        cropRegion: any;
-    }): Promise<{
-        id: string;
-        createdAt: Date;
-        imageUrl: string;
-        characterId: string;
-        sheetId: string | null;
-        imageType: string;
-        cropRegion: import("@prisma/client/runtime/client").JsonValue | null;
-        stateName: string | null;
-    }>;
     deleteCharacterImage(req: any, id: string): Promise<{
         success: boolean;
     }>;
     getEpisodes(req: any, id: string): Promise<({
         finalVideo: {
-            id: string;
             videoUrl: string;
+            id: string;
             duration: number | null;
         } | null;
         _count: {
@@ -151,38 +214,48 @@ export declare class ProjectsController {
         };
     } & {
         id: string;
-        createdAt: Date;
-        updatedAt: Date;
         projectId: string;
-        originalText: string;
-        sortOrder: number;
         episodeNumber: number;
         title: string;
         summary: string;
+        originalText: string;
         characterIds: import("@prisma/client/runtime/client").JsonValue;
         sceneIds: import("@prisma/client/runtime/client").JsonValue;
         emotionCurve: string | null;
         endingHook: string | null;
+        sortOrder: number;
+        createdAt: Date;
+        updatedAt: Date;
     })[]>;
     updateEpisode(req: any, id: string, body: {
         title?: string;
         summary?: string;
     }): Promise<{
         id: string;
-        createdAt: Date;
-        updatedAt: Date;
         projectId: string;
-        originalText: string;
-        sortOrder: number;
         episodeNumber: number;
         title: string;
         summary: string;
+        originalText: string;
         characterIds: import("@prisma/client/runtime/client").JsonValue;
         sceneIds: import("@prisma/client/runtime/client").JsonValue;
         emotionCurve: string | null;
         endingHook: string | null;
+        sortOrder: number;
+        createdAt: Date;
+        updatedAt: Date;
     }>;
     getCharacters(req: any, id: string): Promise<({
+        images: {
+            id: string;
+            createdAt: Date;
+            imageType: string;
+            imageUrl: string;
+            characterId: string;
+            sheetId: string | null;
+            cropRegion: import("@prisma/client/runtime/client").JsonValue | null;
+            stateName: string | null;
+        }[];
         sheets: {
             id: string;
             createdAt: Date;
@@ -191,52 +264,49 @@ export declare class ProjectsController {
             stateName: string | null;
             gridSpec: string;
         }[];
-        images: {
-            id: string;
-            createdAt: Date;
-            imageUrl: string;
-            characterId: string;
-            sheetId: string | null;
-            imageType: string;
-            cropRegion: import("@prisma/client/runtime/client").JsonValue | null;
-            stateName: string | null;
-        }[];
     } & {
         id: string;
+        projectId: string;
+        sortOrder: number;
         createdAt: Date;
         updatedAt: Date;
         name: string;
-        projectId: string;
         description: string;
         visualPrompt: string;
         visualNegative: string;
         voiceDesc: string | null;
         states: import("@prisma/client/runtime/client").JsonValue | null;
         episodeIds: import("@prisma/client/runtime/client").JsonValue;
-        sortOrder: number;
     })[]>;
     getScenes(req: any, id: string): Promise<({
         images: {
             id: string;
             createdAt: Date;
-            imageUrl: string;
             sceneId: string;
+            imageUrl: string;
             variant: string;
         }[];
     } & {
         id: string;
+        projectId: string;
+        sortOrder: number;
         createdAt: Date;
         updatedAt: Date;
         name: string;
-        projectId: string;
         description: string;
         visualPrompt: string;
         visualNegative: string;
         episodeIds: import("@prisma/client/runtime/client").JsonValue;
-        sortOrder: number;
         variants: import("@prisma/client/runtime/client").JsonValue | null;
     })[]>;
     getShots(req: any, id: string): Promise<({
+        images: {
+            id: string;
+            createdAt: Date;
+            shotId: string;
+            imageType: string;
+            imageUrl: string;
+        }[];
         scene: {
             id: string;
             name: string;
@@ -244,43 +314,37 @@ export declare class ProjectsController {
         characters: ({
             character: {
                 id: string;
+                projectId: string;
+                sortOrder: number;
                 createdAt: Date;
                 updatedAt: Date;
                 name: string;
-                projectId: string;
                 description: string;
                 visualPrompt: string;
                 visualNegative: string;
                 voiceDesc: string | null;
                 states: import("@prisma/client/runtime/client").JsonValue | null;
                 episodeIds: import("@prisma/client/runtime/client").JsonValue;
-                sortOrder: number;
             };
         } & {
             id: string;
+            shotId: string;
             characterId: string;
             characterState: string | null;
-            shotId: string;
         })[];
-        images: {
-            id: string;
-            createdAt: Date;
-            imageUrl: string;
-            shotId: string;
-            imageType: string;
-        }[];
         video: {
+            videoUrl: string;
             id: string;
             createdAt: Date;
-            videoUrl: string;
             shotId: string;
             actualDuration: number | null;
         } | null;
     } & {
         id: string;
+        sortOrder: number;
         createdAt: Date;
         updatedAt: Date;
-        sortOrder: number;
+        episodeId: string;
         sceneId: string;
         shotNumber: number;
         duration: number;
@@ -296,7 +360,6 @@ export declare class ProjectsController {
         transitionIn: string;
         transitionOut: string;
         continuityStrength: string;
-        episodeId: string;
     })[]>;
     updateShot(req: any, id: string, body: {
         imagePrompt?: string;
@@ -305,9 +368,10 @@ export declare class ProjectsController {
         cameraMovement?: string;
     }): Promise<{
         id: string;
+        sortOrder: number;
         createdAt: Date;
         updatedAt: Date;
-        sortOrder: number;
+        episodeId: string;
         sceneId: string;
         shotNumber: number;
         duration: number;
@@ -323,13 +387,12 @@ export declare class ProjectsController {
         transitionIn: string;
         transitionOut: string;
         continuityStrength: string;
-        episodeId: string;
     }>;
     getFinalVideo(req: any, id: string): Promise<{
+        videoUrl: string;
         id: string;
         createdAt: Date;
-        videoUrl: string;
-        duration: number | null;
         episodeId: string;
+        duration: number | null;
     }>;
 }

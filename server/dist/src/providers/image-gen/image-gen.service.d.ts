@@ -1,4 +1,3 @@
-import { ConfigService } from '@nestjs/config';
 import type { AiProviderConfig } from '../../ai-providers/ai-providers.service';
 export interface ImageGenRequest {
     prompt: string;
@@ -14,10 +13,6 @@ export interface ImageGenResponse {
     cost: number;
 }
 export declare class ImageGenService {
-    private config;
-    private defaultBaseUrl;
-    private defaultApiKey;
-    private defaultModel;
-    constructor(config: ConfigService);
+    private resolveConfig;
     generate(request: ImageGenRequest, providerConfig?: AiProviderConfig): Promise<ImageGenResponse>;
 }

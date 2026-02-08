@@ -1,5 +1,4 @@
-﻿import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable } from '@nestjs/common';
 import type { AiProviderConfig } from '../../ai-providers/ai-providers.service';
 
 export interface VideoGenRequest {
@@ -21,20 +20,15 @@ export interface VideoGenResult {
 
 @Injectable()
 export class VideoGenService {
-  private defaultBaseUrl: string;
-  private defaultApiKey: string;
-  private defaultModel: string;
-
-  constructor(private config: ConfigService) {
-    this.defaultBaseUrl = config.get('VIDEO_GEN_BASE_URL')!;
-    this.defaultApiKey = config.get('VIDEO_GEN_API_KEY')!;
-    this.defaultModel = config.get('VIDEO_GEN_MODEL')!;
+  private resolveConfig(providerConfig?: AiProviderConfig) {
+    if (!providerConfig) {
+      throw new Error('未配置视频生成服务。请在「AI 服务配置」中添加一个 video_gen 类型的 Provider 并设为默认。');
+    }
+    return providerConfig;
   }
 
   async submit(request: VideoGenRequest, providerConfig?: AiProviderConfig): Promise<VideoGenResponse> {
-    const baseUrl = providerConfig?.baseUrl ?? this.defaultBaseUrl;
-    const apiKey = providerConfig?.apiKey ?? this.defaultApiKey;
-    const model = providerConfig?.model ?? this.defaultModel;
+    const { baseUrl, apiKey, model } = this.resolveConfig(providerConfig);
 
     const response = await fetch(baseUrl + '/video/generations', {
       method: 'POST',
@@ -48,8 +42,7 @@ export class VideoGenService {
   }
 
   async getResult(taskId: string, providerConfig?: AiProviderConfig): Promise<VideoGenResult> {
-    const baseUrl = providerConfig?.baseUrl ?? this.defaultBaseUrl;
-    const apiKey = providerConfig?.apiKey ?? this.defaultApiKey;
+    const { baseUrl, apiKey } = this.resolveConfig(providerConfig);
 
     const response = await fetch(baseUrl + '/video/generations/' + taskId, {
       headers: { Authorization: 'Bearer ' + apiKey },

@@ -99,30 +99,78 @@ export class ProjectsController {
     return this.projectsService.retryShot(req.user.sub, id, step);
   }
 
-  // ==================== 角色设定图与裁剪 ====================
+  // ==================== 视觉资产生成 ====================
+
+  /** 获取项目视觉资产（角色+场景+图片） */
+  @Get('projects/:id/assets')
+  async getProjectAssets(@Req() req: any, @Param('id') id: string) {
+    return this.projectsService.getProjectAssets(req.user.sub, id);
+  }
+
+  /** 为单个角色生成定妆照（三视图） */
+  @Post('projects/:id/generate-character-image/:characterId')
+  async generateCharacterImage(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Param('characterId') characterId: string,
+    @Body() body: { imageProviderId?: string },
+  ) {
+    return this.projectsService.generateCharacterImage(
+      req.user.sub,
+      id,
+      characterId,
+      body.imageProviderId,
+    );
+  }
+
+  /** 为单个场景生成锚图 */
+  @Post('projects/:id/generate-scene-image/:sceneId')
+  async generateSceneImage(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Param('sceneId') sceneId: string,
+    @Body() body: { variant?: string; imageProviderId?: string },
+  ) {
+    return this.projectsService.generateSceneImage(
+      req.user.sub,
+      id,
+      sceneId,
+      body.variant || 'default',
+      body.imageProviderId,
+    );
+  }
+
+  /** 一键生成所有缺失的资产 */
+  @Post('projects/:id/generate-all-assets')
+  async generateAllAssets(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() body: { imageProviderId?: string },
+  ) {
+    return this.projectsService.generateAllAssets(
+      req.user.sub,
+      id,
+      body.imageProviderId,
+    );
+  }
+
+  /** 删除角色定妆照 */
+  @Delete('character-sheets/:id')
+  async deleteCharacterSheet(@Req() req: any, @Param('id') id: string) {
+    return this.projectsService.deleteCharacterSheet(req.user.sub, id);
+  }
+
+  /** 删除场景锚图 */
+  @Delete('scene-images/:id')
+  async deleteSceneImage(@Req() req: any, @Param('id') id: string) {
+    return this.projectsService.deleteSceneImage(req.user.sub, id);
+  }
+
+  // ==================== 兼容旧 API ====================
 
   @Get('projects/:id/character-sheets')
   async getCharacterSheets(@Req() req: any, @Param('id') id: string) {
     return this.projectsService.getCharacterSheets(req.user.sub, id);
-  }
-
-  @Post('character-sheets/:id/regenerate')
-  async regenerateSheet(@Req() req: any, @Param('id') id: string) {
-    return this.projectsService.regenerateSheet(req.user.sub, id);
-  }
-
-  @Post('character-sheets/:id/crop')
-  async cropSheet(
-    @Req() req: any,
-    @Param('id') id: string,
-    @Body() body: { imageType: string; cropRegion: any },
-  ) {
-    return this.projectsService.cropSheet(
-      req.user.sub,
-      id,
-      body.imageType,
-      body.cropRegion,
-    );
   }
 
   @Delete('character-images/:id')

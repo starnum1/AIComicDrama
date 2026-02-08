@@ -1,4 +1,3 @@
-import { ConfigService } from '@nestjs/config';
 import type { AiProviderConfig } from '../../ai-providers/ai-providers.service';
 export interface VideoGenRequest {
     firstFrameUrl: string;
@@ -15,11 +14,7 @@ export interface VideoGenResult {
     cost?: number;
 }
 export declare class VideoGenService {
-    private config;
-    private defaultBaseUrl;
-    private defaultApiKey;
-    private defaultModel;
-    constructor(config: ConfigService);
+    private resolveConfig;
     submit(request: VideoGenRequest, providerConfig?: AiProviderConfig): Promise<VideoGenResponse>;
     getResult(taskId: string, providerConfig?: AiProviderConfig): Promise<VideoGenResult>;
     generateAndWait(request: VideoGenRequest, providerConfig?: AiProviderConfig, pollIntervalMs?: number, timeoutMs?: number): Promise<VideoGenResult>;

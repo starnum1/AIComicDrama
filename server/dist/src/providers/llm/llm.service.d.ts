@@ -1,4 +1,3 @@
-import { ConfigService } from '@nestjs/config';
 import type { AiProviderConfig } from '../../ai-providers/ai-providers.service';
 export interface LLMChatMessage {
     role: 'system' | 'user' | 'assistant';
@@ -13,11 +12,7 @@ export interface LLMResponse {
     };
 }
 export declare class LLMService {
-    private config;
-    private defaultBaseUrl;
-    private defaultApiKey;
-    private defaultModel;
-    constructor(config: ConfigService);
+    private resolveConfig;
     chat(messages: LLMChatMessage[], options?: {
         temperature?: number;
         maxTokens?: number;

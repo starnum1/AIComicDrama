@@ -53,14 +53,26 @@ let ProjectsController = class ProjectsController {
     async retryShot(req, id, step) {
         return this.projectsService.retryShot(req.user.sub, id, step);
     }
+    async getProjectAssets(req, id) {
+        return this.projectsService.getProjectAssets(req.user.sub, id);
+    }
+    async generateCharacterImage(req, id, characterId, body) {
+        return this.projectsService.generateCharacterImage(req.user.sub, id, characterId, body.imageProviderId);
+    }
+    async generateSceneImage(req, id, sceneId, body) {
+        return this.projectsService.generateSceneImage(req.user.sub, id, sceneId, body.variant || 'default', body.imageProviderId);
+    }
+    async generateAllAssets(req, id, body) {
+        return this.projectsService.generateAllAssets(req.user.sub, id, body.imageProviderId);
+    }
+    async deleteCharacterSheet(req, id) {
+        return this.projectsService.deleteCharacterSheet(req.user.sub, id);
+    }
+    async deleteSceneImage(req, id) {
+        return this.projectsService.deleteSceneImage(req.user.sub, id);
+    }
     async getCharacterSheets(req, id) {
         return this.projectsService.getCharacterSheets(req.user.sub, id);
-    }
-    async regenerateSheet(req, id) {
-        return this.projectsService.regenerateSheet(req.user.sub, id);
-    }
-    async cropSheet(req, id, body) {
-        return this.projectsService.cropSheet(req.user.sub, id, body.imageType, body.cropRegion);
     }
     async deleteCharacterImage(req, id) {
         return this.projectsService.deleteCharacterImage(req.user.sub, id);
@@ -180,6 +192,59 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], ProjectsController.prototype, "retryShot", null);
 __decorate([
+    (0, common_1.Get)('projects/:id/assets'),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", Promise)
+], ProjectsController.prototype, "getProjectAssets", null);
+__decorate([
+    (0, common_1.Post)('projects/:id/generate-character-image/:characterId'),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Param)('characterId')),
+    __param(3, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, String, Object]),
+    __metadata("design:returntype", Promise)
+], ProjectsController.prototype, "generateCharacterImage", null);
+__decorate([
+    (0, common_1.Post)('projects/:id/generate-scene-image/:sceneId'),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Param)('sceneId')),
+    __param(3, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, String, Object]),
+    __metadata("design:returntype", Promise)
+], ProjectsController.prototype, "generateSceneImage", null);
+__decorate([
+    (0, common_1.Post)('projects/:id/generate-all-assets'),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, Object]),
+    __metadata("design:returntype", Promise)
+], ProjectsController.prototype, "generateAllAssets", null);
+__decorate([
+    (0, common_1.Delete)('character-sheets/:id'),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", Promise)
+], ProjectsController.prototype, "deleteCharacterSheet", null);
+__decorate([
+    (0, common_1.Delete)('scene-images/:id'),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", Promise)
+], ProjectsController.prototype, "deleteSceneImage", null);
+__decorate([
     (0, common_1.Get)('projects/:id/character-sheets'),
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Param)('id')),
@@ -187,23 +252,6 @@ __decorate([
     __metadata("design:paramtypes", [Object, String]),
     __metadata("design:returntype", Promise)
 ], ProjectsController.prototype, "getCharacterSheets", null);
-__decorate([
-    (0, common_1.Post)('character-sheets/:id/regenerate'),
-    __param(0, (0, common_1.Req)()),
-    __param(1, (0, common_1.Param)('id')),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, String]),
-    __metadata("design:returntype", Promise)
-], ProjectsController.prototype, "regenerateSheet", null);
-__decorate([
-    (0, common_1.Post)('character-sheets/:id/crop'),
-    __param(0, (0, common_1.Req)()),
-    __param(1, (0, common_1.Param)('id')),
-    __param(2, (0, common_1.Body)()),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, String, Object]),
-    __metadata("design:returntype", Promise)
-], ProjectsController.prototype, "cropSheet", null);
 __decorate([
     (0, common_1.Delete)('character-images/:id'),
     __param(0, (0, common_1.Req)()),

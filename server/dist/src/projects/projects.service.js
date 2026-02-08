@@ -14,10 +14,14 @@ exports.ProjectsService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../common/prisma.service");
 const pipeline_orchestrator_1 = require("../pipeline/pipeline.orchestrator");
+const asset_service_1 = require("../steps/asset/asset.service");
+const ai_providers_service_1 = require("../ai-providers/ai-providers.service");
 let ProjectsService = ProjectsService_1 = class ProjectsService {
-    constructor(prisma, orchestrator) {
+    constructor(prisma, orchestrator, assetService, aiProvidersService) {
         this.prisma = prisma;
         this.orchestrator = orchestrator;
+        this.assetService = assetService;
+        this.aiProvidersService = aiProvidersService;
         this.logger = new common_1.Logger(ProjectsService_1.name);
     }
     async listProjects(userId) {
@@ -220,52 +224,74 @@ let ProjectsService = ProjectsService_1 = class ProjectsService {
             throw new common_1.ForbiddenException('无权操作');
         return { success: true, message: `镜头 ${shotId} 的 ${step} 步骤已重新提交` };
     }
+    async getProjectAssets(userId, projectId) {
+        await this.verifyProjectOwnership(userId, projectId);
+        const characters = await this.prisma.character.findMany({
+            where: { projectId },
+            include: {
+                sheets: { orderBy: { createdAt: 'desc' } },
+                images: { orderBy: { createdAt: 'desc' } },
+            },
+            orderBy: { sortOrder: 'asc' },
+        });
+        const scenes = await this.prisma.scene.findMany({
+            where: { projectId },
+            include: {
+                images: { orderBy: { createdAt: 'desc' } },
+            },
+            orderBy: { sortOrder: 'asc' },
+        });
+        return { characters, scenes };
+    }
     async getCharacterSheets(userId, projectId) {
         await this.verifyProjectOwnership(userId, projectId);
         return this.prisma.character.findMany({
             where: { projectId },
             include: {
-                sheets: {
-                    orderBy: { createdAt: 'desc' },
-                },
-                images: {
-                    orderBy: { createdAt: 'desc' },
-                },
+                sheets: { orderBy: { createdAt: 'desc' } },
+                images: { orderBy: { createdAt: 'desc' } },
             },
             orderBy: { sortOrder: 'asc' },
         });
     }
-    async regenerateSheet(userId, sheetId) {
-        const sheet = await this.prisma.characterSheet.findUnique({
-            where: { id: sheetId },
-            include: { character: { include: { project: true } } },
-        });
-        if (!sheet)
-            throw new common_1.NotFoundException('设定图不存在');
-        if (sheet.character.project.userId !== userId)
-            throw new common_1.ForbiddenException('无权操作');
-        return { success: true, message: '已提交重新生成请求' };
+    async generateCharacterImage(userId, projectId, characterId, imageProviderId) {
+        await this.verifyProjectOwnership(userId, projectId);
+        const imageConfig = await this.resolveImageConfig(userId, imageProviderId);
+        return this.assetService.generateCharacterTurnaround(characterId, imageConfig);
     }
-    async cropSheet(userId, sheetId, imageType, cropRegion) {
+    async generateSceneImage(userId, projectId, sceneId, variant, imageProviderId) {
+        await this.verifyProjectOwnership(userId, projectId);
+        const imageConfig = await this.resolveImageConfig(userId, imageProviderId);
+        return this.assetService.generateSceneAnchor(sceneId, variant, imageConfig);
+    }
+    async generateAllAssets(userId, projectId, imageProviderId) {
+        await this.verifyProjectOwnership(userId, projectId);
+        const imageConfig = await this.resolveImageConfig(userId, imageProviderId);
+        return this.assetService.generateAllMissing(projectId, imageConfig);
+    }
+    async deleteCharacterSheet(userId, sheetId) {
         const sheet = await this.prisma.characterSheet.findUnique({
             where: { id: sheetId },
             include: { character: { include: { project: true } } },
         });
         if (!sheet)
-            throw new common_1.NotFoundException('设定图不存在');
+            throw new common_1.NotFoundException('定妆照不存在');
         if (sheet.character.project.userId !== userId)
             throw new common_1.ForbiddenException('无权操作');
-        const image = await this.prisma.characterImage.create({
-            data: {
-                characterId: sheet.characterId,
-                sheetId: sheet.id,
-                imageType,
-                imageUrl: '',
-                cropRegion,
-                stateName: sheet.stateName,
-            },
+        await this.prisma.characterSheet.delete({ where: { id: sheetId } });
+        return { success: true };
+    }
+    async deleteSceneImage(userId, imageId) {
+        const image = await this.prisma.sceneImage.findUnique({
+            where: { id: imageId },
+            include: { scene: { include: { project: true } } },
         });
-        return image;
+        if (!image)
+            throw new common_1.NotFoundException('锚图不存在');
+        if (image.scene.project.userId !== userId)
+            throw new common_1.ForbiddenException('无权操作');
+        await this.prisma.sceneImage.delete({ where: { id: imageId } });
+        return { success: true };
     }
     async deleteCharacterImage(userId, imageId) {
         const image = await this.prisma.characterImage.findUnique({
@@ -278,6 +304,20 @@ let ProjectsService = ProjectsService_1 = class ProjectsService {
             throw new common_1.ForbiddenException('无权操作');
         await this.prisma.characterImage.delete({ where: { id: imageId } });
         return { success: true };
+    }
+    async resolveImageConfig(userId, imageProviderId) {
+        if (!imageProviderId)
+            return undefined;
+        const provider = await this.prisma.aiProvider.findUnique({
+            where: { id: imageProviderId },
+        });
+        if (!provider || provider.userId !== userId)
+            return undefined;
+        return {
+            baseUrl: provider.baseUrl,
+            apiKey: provider.apiKey,
+            model: provider.model,
+        };
     }
     async getEpisodes(userId, projectId) {
         await this.verifyProjectOwnership(userId, projectId);
@@ -388,6 +428,8 @@ exports.ProjectsService = ProjectsService;
 exports.ProjectsService = ProjectsService = ProjectsService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
-        pipeline_orchestrator_1.PipelineOrchestrator])
+        pipeline_orchestrator_1.PipelineOrchestrator,
+        asset_service_1.AssetService,
+        ai_providers_service_1.AiProvidersService])
 ], ProjectsService);
 //# sourceMappingURL=projects.service.js.map

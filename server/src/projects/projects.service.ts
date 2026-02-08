@@ -7,6 +7,8 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { PipelineOrchestrator } from '../pipeline/pipeline.orchestrator';
+import { AssetService } from '../steps/asset/asset.service';
+import { AiProvidersService } from '../ai-providers/ai-providers.service';
 
 @Injectable()
 export class ProjectsService {
@@ -15,6 +17,8 @@ export class ProjectsService {
   constructor(
     private prisma: PrismaService,
     private orchestrator: PipelineOrchestrator,
+    private assetService: AssetService,
+    private aiProvidersService: AiProvidersService,
   ) {}
 
   // ==================== 项目 CRUD ====================
@@ -275,71 +279,110 @@ export class ProjectsService {
     return { success: true, message: `镜头 ${shotId} 的 ${step} 步骤已重新提交` };
   }
 
-  // ==================== 角色设定图与裁剪 ====================
+  // ==================== 视觉资产 ====================
 
-  /** 获取项目的所有角色设定图 */
-  async getCharacterSheets(userId: string, projectId: string) {
+  /** 获取项目完整视觉资产（角色+场景+所有图片） */
+  async getProjectAssets(userId: string, projectId: string) {
     await this.verifyProjectOwnership(userId, projectId);
 
+    const characters = await this.prisma.character.findMany({
+      where: { projectId },
+      include: {
+        sheets: { orderBy: { createdAt: 'desc' } },
+        images: { orderBy: { createdAt: 'desc' } },
+      },
+      orderBy: { sortOrder: 'asc' },
+    });
+
+    const scenes = await this.prisma.scene.findMany({
+      where: { projectId },
+      include: {
+        images: { orderBy: { createdAt: 'desc' } },
+      },
+      orderBy: { sortOrder: 'asc' },
+    });
+
+    return { characters, scenes };
+  }
+
+  /** 获取项目角色设定图（兼容旧API） */
+  async getCharacterSheets(userId: string, projectId: string) {
+    await this.verifyProjectOwnership(userId, projectId);
     return this.prisma.character.findMany({
       where: { projectId },
       include: {
-        sheets: {
-          orderBy: { createdAt: 'desc' },
-        },
-        images: {
-          orderBy: { createdAt: 'desc' },
-        },
+        sheets: { orderBy: { createdAt: 'desc' } },
+        images: { orderBy: { createdAt: 'desc' } },
       },
       orderBy: { sortOrder: 'asc' },
     });
   }
 
-  /** 重新生成设定图 */
-  async regenerateSheet(userId: string, sheetId: string) {
-    const sheet = await this.prisma.characterSheet.findUnique({
-      where: { id: sheetId },
-      include: { character: { include: { project: true } } },
-    });
-    if (!sheet) throw new NotFoundException('设定图不存在');
-    if (sheet.character.project.userId !== userId)
-      throw new ForbiddenException('无权操作');
-
-    // TODO: 调用 AssetService 重新生成
-    return { success: true, message: '已提交重新生成请求' };
-  }
-
-  /** 从设定图裁剪子图 */
-  async cropSheet(
+  /** 为单个角色生成定妆照 */
+  async generateCharacterImage(
     userId: string,
-    sheetId: string,
-    imageType: string,
-    cropRegion: { x: number; y: number; width: number; height: number },
+    projectId: string,
+    characterId: string,
+    imageProviderId?: string,
   ) {
+    await this.verifyProjectOwnership(userId, projectId);
+    const imageConfig = await this.resolveImageConfig(userId, imageProviderId);
+    return this.assetService.generateCharacterTurnaround(characterId, imageConfig);
+  }
+
+  /** 为单个场景生成锚图 */
+  async generateSceneImage(
+    userId: string,
+    projectId: string,
+    sceneId: string,
+    variant: string,
+    imageProviderId?: string,
+  ) {
+    await this.verifyProjectOwnership(userId, projectId);
+    const imageConfig = await this.resolveImageConfig(userId, imageProviderId);
+    return this.assetService.generateSceneAnchor(sceneId, variant, imageConfig);
+  }
+
+  /** 一键生成所有缺失的资产 */
+  async generateAllAssets(
+    userId: string,
+    projectId: string,
+    imageProviderId?: string,
+  ) {
+    await this.verifyProjectOwnership(userId, projectId);
+    const imageConfig = await this.resolveImageConfig(userId, imageProviderId);
+    return this.assetService.generateAllMissing(projectId, imageConfig);
+  }
+
+  /** 删除角色定妆照 */
+  async deleteCharacterSheet(userId: string, sheetId: string) {
     const sheet = await this.prisma.characterSheet.findUnique({
       where: { id: sheetId },
       include: { character: { include: { project: true } } },
     });
-    if (!sheet) throw new NotFoundException('设定图不存在');
+    if (!sheet) throw new NotFoundException('定妆照不存在');
     if (sheet.character.project.userId !== userId)
       throw new ForbiddenException('无权操作');
 
-    // TODO: 调用 AssetService 裁剪逻辑，目前先创建记录
-    const image = await this.prisma.characterImage.create({
-      data: {
-        characterId: sheet.characterId,
-        sheetId: sheet.id,
-        imageType,
-        imageUrl: '', // TODO: 实际裁剪后的URL
-        cropRegion,
-        stateName: sheet.stateName,
-      },
-    });
-
-    return image;
+    await this.prisma.characterSheet.delete({ where: { id: sheetId } });
+    return { success: true };
   }
 
-  /** 删除裁剪图 */
+  /** 删除场景锚图 */
+  async deleteSceneImage(userId: string, imageId: string) {
+    const image = await this.prisma.sceneImage.findUnique({
+      where: { id: imageId },
+      include: { scene: { include: { project: true } } },
+    });
+    if (!image) throw new NotFoundException('锚图不存在');
+    if (image.scene.project.userId !== userId)
+      throw new ForbiddenException('无权操作');
+
+    await this.prisma.sceneImage.delete({ where: { id: imageId } });
+    return { success: true };
+  }
+
+  /** 删除角色裁剪图（兼容旧API） */
   async deleteCharacterImage(userId: string, imageId: string) {
     const image = await this.prisma.characterImage.findUnique({
       where: { id: imageId },
@@ -351,6 +394,20 @@ export class ProjectsService {
 
     await this.prisma.characterImage.delete({ where: { id: imageId } });
     return { success: true };
+  }
+
+  /** 解析图片生成配置 */
+  private async resolveImageConfig(userId: string, imageProviderId?: string) {
+    if (!imageProviderId) return undefined;
+    const provider = await this.prisma.aiProvider.findUnique({
+      where: { id: imageProviderId },
+    });
+    if (!provider || provider.userId !== userId) return undefined;
+    return {
+      baseUrl: provider.baseUrl,
+      apiKey: provider.apiKey,
+      model: provider.model,
+    };
   }
 
   // ==================== 数据查询 ====================
