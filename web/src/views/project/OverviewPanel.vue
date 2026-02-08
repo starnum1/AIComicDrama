@@ -112,8 +112,8 @@ async function startPipeline() {
       {},
       { headers: { Authorization: `Bearer ${token}` } },
     )
-    ElMessage.success('流水线已启动，正在分析小说...')
-    projectStore.setCurrentStep('analysis')
+    ElMessage.success('流水线已启动，正在构建视觉资产...')
+    projectStore.setCurrentStep('asset')
   } catch (err: any) {
     const msg = err.response?.data?.message || err.message || '启动失败'
     ElMessage.error(msg)

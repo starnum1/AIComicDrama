@@ -90,13 +90,6 @@ let PipelineOrchestrator = PipelineOrchestrator_1 = class PipelineOrchestrator {
         const stepsToClear = shared_1.PIPELINE_STEP_ORDER.slice(startIndex);
         for (const step of stepsToClear) {
             switch (step) {
-                case 'analysis':
-                    await this.prisma.character.deleteMany({ where: { projectId } });
-                    await this.prisma.scene.deleteMany({ where: { projectId } });
-                    await this.prisma.episode.deleteMany({
-                        where: { project: { id: projectId } },
-                    });
-                    break;
                 case 'asset':
                     await this.prisma.characterImage.deleteMany({
                         where: { character: { projectId } },
@@ -107,6 +100,11 @@ let PipelineOrchestrator = PipelineOrchestrator_1 = class PipelineOrchestrator {
                     await this.prisma.sceneImage.deleteMany({
                         where: { scene: { projectId } },
                     });
+                    await this.prisma.character.deleteMany({ where: { projectId } });
+                    await this.prisma.scene.deleteMany({ where: { projectId } });
+                    break;
+                case 'episode':
+                    await this.prisma.episode.deleteMany({ where: { projectId } });
                     break;
                 case 'storyboard':
                     await this.prisma.shot.deleteMany({

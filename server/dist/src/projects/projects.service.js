@@ -177,7 +177,7 @@ let ProjectsService = ProjectsService_1 = class ProjectsService {
             throw new common_1.BadRequestException('请先上传小说文本');
         }
         this.logger.log(`Starting pipeline for project ${projectId}`);
-        await this.orchestrator.startFrom(projectId, 'analysis');
+        await this.orchestrator.startFrom(projectId, 'asset');
         this.logger.log(`Pipeline task queued for project ${projectId}`);
         return { success: true, message: '流水线已启动' };
     }

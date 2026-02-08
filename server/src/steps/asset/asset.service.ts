@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
+import { LLMService } from '../../providers/llm/llm.service';
 import { ImageGenService } from '../../providers/image-gen/image-gen.service';
 import { StorageService } from '../../providers/storage/storage.service';
 import { WsGateway } from '../../common/ws.gateway';
@@ -7,30 +9,108 @@ import { executeBatch } from '../../common/concurrency';
 import type { ProjectAiConfigs } from '../../pipeline/pipeline.processor';
 import type { AiProviderConfig } from '../../ai-providers/ai-providers.service';
 
+// LLM 提取结果：角色 + 场景
+interface ExtractResult {
+  characters: {
+    name: string;
+    description: string;
+    visual_prompt: string;
+    visual_negative: string;
+    states?: Record<string, string>;
+  }[];
+  scenes: {
+    name: string;
+    description: string;
+    visual_prompt: string;
+    visual_negative: string;
+    variants?: Record<string, string>;
+  }[];
+}
+
 @Injectable()
 export class AssetService {
   private readonly logger = new Logger(AssetService.name);
 
   constructor(
     private prisma: PrismaService,
+    private llm: LLMService,
     private imageGen: ImageGenService,
     private storage: StorageService,
     private ws: WsGateway,
   ) {}
 
   async execute(projectId: string, aiConfigs?: ProjectAiConfigs): Promise<void> {
+    // ========== Phase 1：LLM 提取角色 + 场景 ==========
+    const novel = await this.prisma.novel.findUnique({ where: { projectId } });
+    if (!novel) throw new Error('小说内容不存在');
+
+    this.logger.log(`Project ${projectId} - 开始视觉资产构建，字数：${novel.charCount}`);
+
+    this.ws.emitToProject(projectId, 'progress:detail', {
+      step: 'asset',
+      message: '正在分析角色和场景...',
+      completed: 0,
+      total: 0,
+    });
+
+    const { data: extractResult } = await this.llm.chatJSON<ExtractResult>(
+      [
+        { role: 'system', content: this.buildExtractSystemPrompt() },
+        {
+          role: 'user',
+          content: `请分析以下短篇小说，提取所有角色和场景：\n\n${novel.originalText}`,
+        },
+      ],
+      { temperature: 0.7, maxTokens: 8000 },
+      aiConfigs?.llm,
+    );
+
+    // 存储角色
+    for (let i = 0; i < extractResult.characters.length; i++) {
+      const char = extractResult.characters[i];
+      await this.prisma.character.create({
+        data: {
+          projectId,
+          name: char.name,
+          description: char.description,
+          visualPrompt: char.visual_prompt,
+          visualNegative: char.visual_negative,
+          states: char.states ?? Prisma.JsonNull,
+          episodeIds: [],
+          sortOrder: i,
+        },
+      });
+    }
+
+    // 存储场景
+    for (let i = 0; i < extractResult.scenes.length; i++) {
+      const scene = extractResult.scenes[i];
+      await this.prisma.scene.create({
+        data: {
+          projectId,
+          name: scene.name,
+          description: scene.description,
+          visualPrompt: scene.visual_prompt,
+          visualNegative: scene.visual_negative,
+          variants: scene.variants ?? Prisma.JsonNull,
+          episodeIds: [],
+          sortOrder: i,
+        },
+      });
+    }
+
+    this.logger.log(
+      `Project ${projectId} - 提取完成：${extractResult.characters.length}个角色，${extractResult.scenes.length}个场景`,
+    );
+
+    // ========== Phase 2：生成设定图和场景图 ==========
     const imageConfig = aiConfigs?.imageGen;
-    const characters = await this.prisma.character.findMany({
-      where: { projectId },
-    });
-    const scenes = await this.prisma.scene.findMany({
-      where: { projectId },
-    });
+    const characters = await this.prisma.character.findMany({ where: { projectId } });
+    const scenes = await this.prisma.scene.findMany({ where: { projectId } });
 
     const totalAssets = characters.length + scenes.length;
     let completedAssets = 0;
 
-    // 使用 executeBatch 控制并发（避免 Promise.all 无限并发触发限流）
     const taskFactories: Array<() => Promise<void>> = [];
 
     for (const character of characters) {
@@ -63,12 +143,61 @@ export class AssetService {
       });
     }
 
-    // 最多 5 个并发
     await executeBatch(taskFactories, 5);
 
     this.logger.log(
-      `Project ${projectId} - 视觉资产生成完成（设定图已生成，等待用户裁剪确认）`,
+      `Project ${projectId} - 视觉资产生成完成（${characters.length}角色 + ${scenes.length}场景）`,
     );
+  }
+
+  // ==================== LLM 提取提示词 ====================
+
+  private buildExtractSystemPrompt(): string {
+    return `你是一位专业的3D动漫短剧策划师。你的任务是分析一篇短篇小说，提取所有角色和场景。
+
+## 角色提取要求
+
+- 识别所有有台词或重要戏份的角色
+- 为每个角色生成完整的英文视觉描述（visual_prompt），用于AI图像生成
+- 视觉描述必须包含：性别、年龄、体型、发型发色、面部特征、服装、整体风格
+- 所有视觉描述统一使用以下基础风格前缀：3d anime style, cel-shading, cinematic lighting
+- 小说中未明确描写的外貌，根据角色身份、性格、年代背景合理补充
+- 如果角色在故事中有明显的状态变化（如生/死、变装、受伤），在states字段中为每种状态分别提供视觉描述
+- visual_negative 用于排除不想要的风格元素，通常包含：realistic, photographic, western, modern（根据作品年代调整）
+
+## 场景提取要求
+
+- 识别所有出现的场景/地点
+- 为每个场景生成完整的英文视觉描述（visual_prompt）
+- 必须包含：场景类型（室内/室外）、空间布局、关键物件、光照条件、整体氛围
+- 同样使用 3d anime style 前缀
+- 如果同一场景在不同时段/天气下出现，在variants字段中提供变体描述
+- 变体只改变光照和氛围，不改变空间布局和物件位置
+
+## 输出格式
+
+严格按照JSON格式输出，不要包含任何其他文字：
+
+{
+  "characters": [
+    {
+      "name": "角色中文名",
+      "description": "角色简介（中文，2-3句话，包含性格和角色功能）",
+      "visual_prompt": "3d anime style, cel-shading, ... (完整英文视觉描述)",
+      "visual_negative": "realistic, photographic, ... (英文负面提示词)",
+      "states": {"状态名": "该状态下的完整英文视觉描述"} 或 null
+    }
+  ],
+  "scenes": [
+    {
+      "name": "场景中文名",
+      "description": "场景简介（中文）",
+      "visual_prompt": "3d anime style, ... (完整英文视觉描述)",
+      "visual_negative": "realistic, photographic, ...",
+      "variants": {"night": "夜晚变体描述", "storm": "暴风雨变体描述"} 或 null
+    }
+  ]
+}`;
   }
 
   // ==================== 角色设定图生成 ====================
@@ -78,10 +207,8 @@ export class AssetService {
     character: any,
     imageConfig?: AiProviderConfig,
   ): Promise<void> {
-    // 默认状态的设定图
     await this.generateSingleSheet(projectId, character, null, imageConfig);
 
-    // 如果有状态变体（如鬼魂状态），为每个变体生成独立的设定图
     const states = character.states as Record<string, string> | null;
     if (states) {
       for (const [stateName, statePrompt] of Object.entries(states)) {
@@ -99,18 +226,19 @@ export class AssetService {
   ): Promise<void> {
     const prompt = this.buildCharacterSheetPrompt(character.visualPrompt);
 
-    const result = await this.imageGen.generate({
-      prompt,
-      negativePrompt: `${character.visualNegative}, single view, single pose, cropped, partial body`,
-      width: 1536,
-      height: 1536,
-    }, imageConfig);
+    const result = await this.imageGen.generate(
+      {
+        prompt,
+        negativePrompt: `${character.visualNegative}, single view, single pose, cropped, partial body`,
+        width: 1536,
+        height: 1536,
+      },
+      imageConfig,
+    );
 
-    // 下载并存储完整设定图
     const storagePath = this.storage.generatePath(projectId, 'character-sheets', 'png');
     const localUrl = await this.storage.uploadFromUrl(result.imageUrl, storagePath);
 
-    // 存储设定图记录
     await this.prisma.characterSheet.create({
       data: {
         characterId: character.id,
@@ -120,7 +248,6 @@ export class AssetService {
       },
     });
 
-    // 通知前端：设定图已生成
     this.ws.emitToProject(projectId, 'asset:character:sheet', {
       characterId: character.id,
       sheetUrl: localUrl,
@@ -157,11 +284,9 @@ export class AssetService {
 
     if (!sheet) throw new Error(`CharacterSheet ${sheetId} not found`);
 
-    // 1. 下载设定图原图
     const response = await fetch(sheet.imageUrl);
     const sheetBuffer = Buffer.from(await response.arrayBuffer());
 
-    // 2. 使用 sharp 裁剪指定区域
     const sharp = (await import('sharp')).default;
     const croppedBuffer = await sharp(sheetBuffer)
       .extract({
@@ -173,12 +298,10 @@ export class AssetService {
       .png()
       .toBuffer();
 
-    // 3. 上传裁剪后的图片
     const projectId = sheet.character.projectId;
     const storagePath = this.storage.generatePath(projectId, 'characters', 'png');
     const croppedUrl = await this.storage.uploadBuffer(croppedBuffer, storagePath, 'image/png');
 
-    // 4. 存储裁剪记录
     const created = await this.prisma.characterImage.create({
       data: {
         characterId: sheet.characterId,
@@ -204,17 +327,9 @@ export class AssetService {
     const character = sheet.character;
     const projectId = character.projectId;
 
-    // 删除旧设定图的裁剪子图
-    await this.prisma.characterImage.deleteMany({
-      where: { sheetId: sheet.id },
-    });
+    await this.prisma.characterImage.deleteMany({ where: { sheetId: sheet.id } });
+    await this.prisma.characterSheet.delete({ where: { id: sheet.id } });
 
-    // 删除旧设定图
-    await this.prisma.characterSheet.delete({
-      where: { id: sheet.id },
-    });
-
-    // 重新生成
     if (sheet.stateName) {
       const states = character.states as Record<string, string> | null;
       const statePrompt = states?.[sheet.stateName] || character.visualPrompt;
@@ -234,54 +349,49 @@ export class AssetService {
   ): Promise<void> {
     const defaultPrompt = `${scene.visualPrompt}, wide shot, establishing shot, full environment view, 16:9 aspect ratio, high quality, detailed background`;
 
-    const defaultResult = await this.imageGen.generate({
-      prompt: defaultPrompt,
-      negativePrompt: scene.visualNegative,
-      width: 1920,
-      height: 1080,
-    }, imageConfig);
+    const defaultResult = await this.imageGen.generate(
+      {
+        prompt: defaultPrompt,
+        negativePrompt: scene.visualNegative,
+        width: 1920,
+        height: 1080,
+      },
+      imageConfig,
+    );
 
     const defaultPath = this.storage.generatePath(projectId, 'scenes', 'png');
     const defaultUrl = await this.storage.uploadFromUrl(defaultResult.imageUrl, defaultPath);
 
     await this.prisma.sceneImage.create({
-      data: {
-        sceneId: scene.id,
-        variant: 'default',
-        imageUrl: defaultUrl,
-      },
+      data: { sceneId: scene.id, variant: 'default', imageUrl: defaultUrl },
     });
 
-    // 生成氛围变体
     const variants = scene.variants as Record<string, string> | null;
     if (variants) {
       for (const [variantName, variantDesc] of Object.entries(variants)) {
         const variantPrompt = `${scene.visualPrompt}, ${variantDesc}, wide shot, establishing shot, 16:9, high quality`;
 
-        const variantResult = await this.imageGen.generate({
-          prompt: variantPrompt,
-          negativePrompt: scene.visualNegative,
-          referenceImageUrl: defaultUrl,
-          referenceStrength: 0.7,
-          width: 1920,
-          height: 1080,
-        }, imageConfig);
+        const variantResult = await this.imageGen.generate(
+          {
+            prompt: variantPrompt,
+            negativePrompt: scene.visualNegative,
+            referenceImageUrl: defaultUrl,
+            referenceStrength: 0.7,
+            width: 1920,
+            height: 1080,
+          },
+          imageConfig,
+        );
 
         const variantPath = this.storage.generatePath(projectId, 'scenes', 'png');
         const variantUrl = await this.storage.uploadFromUrl(variantResult.imageUrl, variantPath);
 
         await this.prisma.sceneImage.create({
-          data: {
-            sceneId: scene.id,
-            variant: variantName,
-            imageUrl: variantUrl,
-          },
+          data: { sceneId: scene.id, variant: variantName, imageUrl: variantUrl },
         });
       }
     }
 
-    this.ws.emitToProject(projectId, 'asset:scene:complete', {
-      sceneId: scene.id,
-    });
+    this.ws.emitToProject(projectId, 'asset:scene:complete', { sceneId: scene.id });
   }
 }

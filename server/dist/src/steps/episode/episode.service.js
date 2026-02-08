@@ -8,93 +8,57 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
-var AnalysisService_1;
+var EpisodeService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.AnalysisService = void 0;
+exports.EpisodeService = void 0;
 const common_1 = require("@nestjs/common");
-const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../../common/prisma.service");
 const llm_service_1 = require("../../providers/llm/llm.service");
 const ws_gateway_1 = require("../../common/ws.gateway");
-let AnalysisService = AnalysisService_1 = class AnalysisService {
+let EpisodeService = EpisodeService_1 = class EpisodeService {
     constructor(prisma, llm, ws) {
         this.prisma = prisma;
         this.llm = llm;
         this.ws = ws;
-        this.logger = new common_1.Logger(AnalysisService_1.name);
+        this.logger = new common_1.Logger(EpisodeService_1.name);
     }
     async execute(projectId, aiConfigs) {
-        const novel = await this.prisma.novel.findUnique({
-            where: { projectId },
-        });
-        if (!novel) {
+        const novel = await this.prisma.novel.findUnique({ where: { projectId } });
+        if (!novel)
             throw new Error('小说内容不存在');
+        const characters = await this.prisma.character.findMany({
+            where: { projectId },
+            orderBy: { sortOrder: 'asc' },
+        });
+        const scenes = await this.prisma.scene.findMany({
+            where: { projectId },
+            orderBy: { sortOrder: 'asc' },
+        });
+        if (characters.length === 0 || scenes.length === 0) {
+            throw new Error('角色或场景数据为空，请先完成视觉资产步骤');
         }
-        this.logger.log(`Project ${projectId} - 开始全文分析，字数：${novel.charCount}`);
-        this.logger.log(`Project ${projectId} - Phase 1: 提取角色和场景`);
-        const { data: extractResult } = await this.llm.chatJSON([
-            { role: 'system', content: this.buildExtractSystemPrompt() },
-            {
-                role: 'user',
-                content: `请分析以下短篇小说，提取所有角色和场景：\n\n${novel.originalText}`,
-            },
-        ], {
-            temperature: 0.7,
-            maxTokens: 8000,
-        }, aiConfigs?.llm);
-        const characterMap = new Map();
-        for (let i = 0; i < extractResult.characters.length; i++) {
-            const char = extractResult.characters[i];
-            const created = await this.prisma.character.create({
-                data: {
-                    projectId,
-                    name: char.name,
-                    description: char.description,
-                    visualPrompt: char.visual_prompt,
-                    visualNegative: char.visual_negative,
-                    states: char.states ?? client_1.Prisma.JsonNull,
-                    episodeIds: [],
-                    sortOrder: i,
-                },
-            });
-            characterMap.set(char.name, created.id);
-        }
-        const sceneMap = new Map();
-        for (let i = 0; i < extractResult.scenes.length; i++) {
-            const scene = extractResult.scenes[i];
-            const created = await this.prisma.scene.create({
-                data: {
-                    projectId,
-                    name: scene.name,
-                    description: scene.description,
-                    visualPrompt: scene.visual_prompt,
-                    visualNegative: scene.visual_negative,
-                    variants: scene.variants ?? client_1.Prisma.JsonNull,
-                    episodeIds: [],
-                    sortOrder: i,
-                },
-            });
-            sceneMap.set(scene.name, created.id);
-        }
-        this.logger.log(`Project ${projectId} - Phase 1 完成：${extractResult.characters.length}个角色，${extractResult.scenes.length}个场景`);
-        this.logger.log(`Project ${projectId} - Phase 2: 分集规划`);
         const lines = novel.originalText.split('\n').filter((l) => l.trim().length > 0);
         const totalLines = lines.length;
         const totalChars = lines.reduce((sum, l) => sum + l.length, 0);
-        this.logger.log(`Project ${projectId} - 原文共 ${totalLines} 行，${totalChars} 字`);
+        this.logger.log(`Project ${projectId} - 开始分集规划，原文共 ${totalLines} 行，${totalChars} 字`);
+        this.ws.emitToProject(projectId, 'progress:detail', {
+            step: 'episode',
+            message: '正在分析剧情结构，规划分集...',
+            completed: 0,
+            total: 0,
+        });
         const numberedText = lines.map((line, i) => `[${i + 1}] ${line}`).join('\n');
-        const characterNames = extractResult.characters.map((c) => c.name);
-        const sceneNames = extractResult.scenes.map((s) => s.name);
+        const characterNames = characters.map((c) => c.name);
+        const sceneNames = scenes.map((s) => s.name);
+        const characterMap = new Map(characters.map((c) => [c.name, c.id]));
+        const sceneMap = new Map(scenes.map((s) => [s.name, s.id]));
         const { data: episodeResult } = await this.llm.chatJSON([
             { role: 'system', content: this.buildEpisodeSystemPrompt(totalLines, totalChars) },
             {
                 role: 'user',
                 content: this.buildEpisodeUserPrompt(numberedText, characterNames, sceneNames),
             },
-        ], {
-            temperature: 0.5,
-            maxTokens: 8000,
-        }, aiConfigs?.llm);
+        ], { temperature: 0.5, maxTokens: 8000 }, aiConfigs?.llm);
         const validatedEpisodes = this.validateEpisodeRanges(episodeResult.episodes, totalLines);
         const characterEpisodes = new Map();
         const sceneEpisodes = new Map();
@@ -145,54 +109,7 @@ let AnalysisService = AnalysisService_1 = class AnalysisService {
                 data: { episodeIds: epNums },
             });
         }
-        this.logger.log(`Project ${projectId} - Phase 2 完成：${validatedEpisodes.length}集`);
-    }
-    buildExtractSystemPrompt() {
-        return `你是一位专业的3D动漫短剧策划师。你的任务是分析一篇短篇小说，提取所有角色和场景。
-
-## 角色提取要求
-
-- 识别所有有台词或重要戏份的角色
-- 为每个角色生成完整的英文视觉描述（visual_prompt），用于AI图像生成
-- 视觉描述必须包含：性别、年龄、体型、发型发色、面部特征、服装、整体风格
-- 所有视觉描述统一使用以下基础风格前缀：3d anime style, cel-shading, cinematic lighting
-- 小说中未明确描写的外貌，根据角色身份、性格、年代背景合理补充
-- 如果角色在故事中有明显的状态变化（如生/死、变装、受伤），在states字段中为每种状态分别提供视觉描述
-- visual_negative 用于排除不想要的风格元素，通常包含：realistic, photographic, western, modern（根据作品年代调整）
-
-## 场景提取要求
-
-- 识别所有出现的场景/地点
-- 为每个场景生成完整的英文视觉描述（visual_prompt）
-- 必须包含：场景类型（室内/室外）、空间布局、关键物件、光照条件、整体氛围
-- 同样使用 3d anime style 前缀
-- 如果同一场景在不同时段/天气下出现，在variants字段中提供变体描述
-- 变体只改变光照和氛围，不改变空间布局和物件位置
-
-## 输出格式
-
-严格按照JSON格式输出，不要包含任何其他文字：
-
-{
-  "characters": [
-    {
-      "name": "角色中文名",
-      "description": "角色简介（中文，2-3句话，包含性格和角色功能）",
-      "visual_prompt": "3d anime style, cel-shading, ... (完整英文视觉描述)",
-      "visual_negative": "realistic, photographic, ... (英文负面提示词)",
-      "states": {"状态名": "该状态下的完整英文视觉描述"} 或 null
-    }
-  ],
-  "scenes": [
-    {
-      "name": "场景中文名",
-      "description": "场景简介（中文）",
-      "visual_prompt": "3d anime style, ... (完整英文视觉描述)",
-      "visual_negative": "realistic, photographic, ...",
-      "variants": {"night": "夜晚变体描述", "storm": "暴风雨变体描述"} 或 null
-    }
-  ]
-}`;
+        this.logger.log(`Project ${projectId} - 分集规划完成：${validatedEpisodes.length} 集`);
     }
     buildEpisodeSystemPrompt(totalLines, totalChars) {
         const estimatedEpisodes = Math.max(2, Math.ceil(totalChars / 2000));
@@ -291,11 +208,11 @@ ${numberedText}
         return sorted;
     }
 };
-exports.AnalysisService = AnalysisService;
-exports.AnalysisService = AnalysisService = AnalysisService_1 = __decorate([
+exports.EpisodeService = EpisodeService;
+exports.EpisodeService = EpisodeService = EpisodeService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
         llm_service_1.LLMService,
         ws_gateway_1.WsGateway])
-], AnalysisService);
-//# sourceMappingURL=analysis.service.js.map
+], EpisodeService);
+//# sourceMappingURL=episode.service.js.map

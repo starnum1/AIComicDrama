@@ -21,8 +21,8 @@ const steps = computed(() =>
 )
 
 const stepLabels: Record<string, string> = {
-  analysis: '全文分析',
   asset: '视觉资产',
+  episode: '分集规划',
   storyboard: '分镜生成',
   anchor: '锚点生成',
   video: '视频生成',

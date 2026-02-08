@@ -125,13 +125,6 @@ export class PipelineOrchestrator {
 
     for (const step of stepsToClear) {
       switch (step) {
-        case 'analysis':
-          await this.prisma.character.deleteMany({ where: { projectId } });
-          await this.prisma.scene.deleteMany({ where: { projectId } });
-          await this.prisma.episode.deleteMany({
-            where: { project: { id: projectId } },
-          });
-          break;
         case 'asset':
           await this.prisma.characterImage.deleteMany({
             where: { character: { projectId } },
@@ -142,6 +135,11 @@ export class PipelineOrchestrator {
           await this.prisma.sceneImage.deleteMany({
             where: { scene: { projectId } },
           });
+          await this.prisma.character.deleteMany({ where: { projectId } });
+          await this.prisma.scene.deleteMany({ where: { projectId } });
+          break;
+        case 'episode':
+          await this.prisma.episode.deleteMany({ where: { projectId } });
           break;
         case 'storyboard':
           await this.prisma.shot.deleteMany({

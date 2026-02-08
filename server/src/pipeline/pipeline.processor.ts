@@ -4,8 +4,8 @@ import { Job } from 'bullmq';
 import { PrismaService } from '../common/prisma.service';
 import { AiProvidersService } from '../ai-providers/ai-providers.service';
 import type { AiProviderConfig } from '../ai-providers/ai-providers.service';
-import { AnalysisService } from '../steps/analysis/analysis.service';
 import { AssetService } from '../steps/asset/asset.service';
+import { EpisodeService } from '../steps/episode/episode.service';
 import { StoryboardService } from '../steps/storyboard/storyboard.service';
 import { AnchorService } from '../steps/anchor/anchor.service';
 import { VideoService } from '../steps/video/video.service';
@@ -28,8 +28,8 @@ export class PipelineProcessor extends WorkerHost {
     private prisma: PrismaService,
     private aiProvidersService: AiProvidersService,
     private orchestrator: PipelineOrchestrator,
-    private analysisService: AnalysisService,
     private assetService: AssetService,
+    private episodeService: EpisodeService,
     private storyboardService: StoryboardService,
     private anchorService: AnchorService,
     private videoService: VideoService,
@@ -99,8 +99,8 @@ export class PipelineProcessor extends WorkerHost {
 
   private async executeStep(projectId: string, step: PipelineStep, aiConfigs: ProjectAiConfigs): Promise<void> {
     switch (step) {
-      case 'analysis': return this.analysisService.execute(projectId, aiConfigs);
       case 'asset': return this.assetService.execute(projectId, aiConfigs);
+      case 'episode': return this.episodeService.execute(projectId, aiConfigs);
       case 'storyboard': return this.storyboardService.execute(projectId, aiConfigs);
       case 'anchor': return this.anchorService.execute(projectId, aiConfigs);
       case 'video': return this.videoService.execute(projectId, aiConfigs);
@@ -111,15 +111,16 @@ export class PipelineProcessor extends WorkerHost {
   private async clearStepOutput(projectId: string, step: PipelineStep): Promise<void> {
     this.logger.log(`Clearing existing output for step: ${step}`);
     switch (step) {
-      case 'analysis':
-        await this.prisma.episode.deleteMany({ where: { projectId } });
-        await this.prisma.character.deleteMany({ where: { projectId } });
-        await this.prisma.scene.deleteMany({ where: { projectId } });
-        break;
       case 'asset':
+        // asset 步骤现在包含角色/场景提取 + 生图，清理时全部删除
         await this.prisma.characterImage.deleteMany({ where: { character: { projectId } } });
         await this.prisma.characterSheet.deleteMany({ where: { character: { projectId } } });
         await this.prisma.sceneImage.deleteMany({ where: { scene: { projectId } } });
+        await this.prisma.character.deleteMany({ where: { projectId } });
+        await this.prisma.scene.deleteMany({ where: { projectId } });
+        break;
+      case 'episode':
+        await this.prisma.episode.deleteMany({ where: { projectId } });
         break;
       case 'storyboard':
         await this.prisma.shotCharacter.deleteMany({ where: { shot: { episode: { projectId } } } });

@@ -1,2 +1,2 @@
-export type PipelineStep = 'analysis' | 'asset' | 'storyboard' | 'anchor' | 'video' | 'assembly';
+export type PipelineStep = 'asset' | 'episode' | 'storyboard' | 'anchor' | 'video' | 'assembly';
 //# sourceMappingURL=pipeline.d.ts.map

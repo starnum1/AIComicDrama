@@ -1,6 +1,6 @@
 export type PipelineStep =
-  | 'analysis'
   | 'asset'
+  | 'episode'
   | 'storyboard'
   | 'anchor'
   | 'video'

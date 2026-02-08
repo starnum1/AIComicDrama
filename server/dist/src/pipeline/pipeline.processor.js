@@ -15,8 +15,8 @@ const bullmq_1 = require("@nestjs/bullmq");
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../common/prisma.service");
 const ai_providers_service_1 = require("../ai-providers/ai-providers.service");
-const analysis_service_1 = require("../steps/analysis/analysis.service");
 const asset_service_1 = require("../steps/asset/asset.service");
+const episode_service_1 = require("../steps/episode/episode.service");
 const storyboard_service_1 = require("../steps/storyboard/storyboard.service");
 const anchor_service_1 = require("../steps/anchor/anchor.service");
 const video_service_1 = require("../steps/video/video.service");
@@ -25,13 +25,13 @@ const ws_gateway_1 = require("../common/ws.gateway");
 const pipeline_orchestrator_1 = require("./pipeline.orchestrator");
 const shared_1 = require("@aicomic/shared");
 let PipelineProcessor = PipelineProcessor_1 = class PipelineProcessor extends bullmq_1.WorkerHost {
-    constructor(prisma, aiProvidersService, orchestrator, analysisService, assetService, storyboardService, anchorService, videoService, assemblyService, ws) {
+    constructor(prisma, aiProvidersService, orchestrator, assetService, episodeService, storyboardService, anchorService, videoService, assemblyService, ws) {
         super();
         this.prisma = prisma;
         this.aiProvidersService = aiProvidersService;
         this.orchestrator = orchestrator;
-        this.analysisService = analysisService;
         this.assetService = assetService;
+        this.episodeService = episodeService;
         this.storyboardService = storyboardService;
         this.anchorService = anchorService;
         this.videoService = videoService;
@@ -91,8 +91,8 @@ let PipelineProcessor = PipelineProcessor_1 = class PipelineProcessor extends bu
     }
     async executeStep(projectId, step, aiConfigs) {
         switch (step) {
-            case 'analysis': return this.analysisService.execute(projectId, aiConfigs);
             case 'asset': return this.assetService.execute(projectId, aiConfigs);
+            case 'episode': return this.episodeService.execute(projectId, aiConfigs);
             case 'storyboard': return this.storyboardService.execute(projectId, aiConfigs);
             case 'anchor': return this.anchorService.execute(projectId, aiConfigs);
             case 'video': return this.videoService.execute(projectId, aiConfigs);
@@ -102,15 +102,15 @@ let PipelineProcessor = PipelineProcessor_1 = class PipelineProcessor extends bu
     async clearStepOutput(projectId, step) {
         this.logger.log(`Clearing existing output for step: ${step}`);
         switch (step) {
-            case 'analysis':
-                await this.prisma.episode.deleteMany({ where: { projectId } });
-                await this.prisma.character.deleteMany({ where: { projectId } });
-                await this.prisma.scene.deleteMany({ where: { projectId } });
-                break;
             case 'asset':
                 await this.prisma.characterImage.deleteMany({ where: { character: { projectId } } });
                 await this.prisma.characterSheet.deleteMany({ where: { character: { projectId } } });
                 await this.prisma.sceneImage.deleteMany({ where: { scene: { projectId } } });
+                await this.prisma.character.deleteMany({ where: { projectId } });
+                await this.prisma.scene.deleteMany({ where: { projectId } });
+                break;
+            case 'episode':
+                await this.prisma.episode.deleteMany({ where: { projectId } });
                 break;
             case 'storyboard':
                 await this.prisma.shotCharacter.deleteMany({ where: { shot: { episode: { projectId } } } });
@@ -134,8 +134,8 @@ exports.PipelineProcessor = PipelineProcessor = PipelineProcessor_1 = __decorate
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
         ai_providers_service_1.AiProvidersService,
         pipeline_orchestrator_1.PipelineOrchestrator,
-        analysis_service_1.AnalysisService,
         asset_service_1.AssetService,
+        episode_service_1.EpisodeService,
         storyboard_service_1.StoryboardService,
         anchor_service_1.AnchorService,
         video_service_1.VideoService,

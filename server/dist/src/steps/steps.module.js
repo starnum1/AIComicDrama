@@ -8,8 +8,8 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.StepsModule = void 0;
 const common_1 = require("@nestjs/common");
-const analysis_service_1 = require("./analysis/analysis.service");
 const asset_service_1 = require("./asset/asset.service");
+const episode_service_1 = require("./episode/episode.service");
 const storyboard_service_1 = require("./storyboard/storyboard.service");
 const anchor_service_1 = require("./anchor/anchor.service");
 const video_service_1 = require("./video/video.service");
@@ -20,16 +20,16 @@ exports.StepsModule = StepsModule;
 exports.StepsModule = StepsModule = __decorate([
     (0, common_1.Module)({
         providers: [
-            analysis_service_1.AnalysisService,
             asset_service_1.AssetService,
+            episode_service_1.EpisodeService,
             storyboard_service_1.StoryboardService,
             anchor_service_1.AnchorService,
             video_service_1.VideoService,
             assembly_service_1.AssemblyService,
         ],
         exports: [
-            analysis_service_1.AnalysisService,
             asset_service_1.AssetService,
+            episode_service_1.EpisodeService,
             storyboard_service_1.StoryboardService,
             anchor_service_1.AnchorService,
             video_service_1.VideoService,

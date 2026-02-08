@@ -17,8 +17,8 @@ const projectId = computed(() => route.params.id as string)
 
 const stepNavItems = [
   { name: 'ProjectOverview', label: '概览', icon: 'Document', step: null },
-  { name: 'ProjectEpisodes', label: '分集', icon: 'Collection', step: 'analysis' },
   { name: 'ProjectAssets', label: '视觉资产', icon: 'Picture', step: 'asset' },
+  { name: 'ProjectEpisodes', label: '分集', icon: 'Collection', step: 'episode' },
   { name: 'ProjectStoryboard', label: '分镜', icon: 'Film', step: 'storyboard' },
   { name: 'ProjectGeneration', label: '生成', icon: 'MagicStick', step: 'anchor' },
   { name: 'ProjectPreview', label: '成片', icon: 'VideoPlay', step: 'assembly' },
