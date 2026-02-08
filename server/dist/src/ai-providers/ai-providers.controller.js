@@ -20,7 +20,7 @@ let AiProvidersController = class AiProvidersController {
     constructor(service) {
         this.service = service;
     }
-    list(req) { return this.service.listMasked(req.user.sub); }
+    list(req) { return this.service.list(req.user.sub); }
     create(req, body) {
         return this.service.create(req.user.sub, body);
     }

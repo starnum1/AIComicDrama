@@ -3,16 +3,16 @@ export declare class AiProvidersController {
     private readonly service;
     constructor(service: AiProvidersService);
     list(req: any): Promise<{
-        apiKey: string;
         id: string;
-        createdAt: Date;
-        updatedAt: Date;
-        name: string;
         userId: string;
+        name: string;
         providerType: string;
         baseUrl: string;
+        apiKey: string;
         model: string;
         isDefault: boolean;
+        createdAt: Date;
+        updatedAt: Date;
     }[]>;
     create(req: any, body: {
         name: string;
@@ -22,16 +22,16 @@ export declare class AiProvidersController {
         model: string;
         isDefault?: boolean;
     }): Promise<{
-        apiKey: string;
         id: string;
-        createdAt: Date;
-        updatedAt: Date;
-        name: string;
         userId: string;
+        name: string;
         providerType: string;
         baseUrl: string;
+        apiKey: string;
         model: string;
         isDefault: boolean;
+        createdAt: Date;
+        updatedAt: Date;
     }>;
     update(req: any, id: string, body: {
         name?: string;
@@ -40,16 +40,16 @@ export declare class AiProvidersController {
         model?: string;
         isDefault?: boolean;
     }): Promise<{
-        apiKey: string;
         id: string;
-        createdAt: Date;
-        updatedAt: Date;
-        name: string;
         userId: string;
+        name: string;
         providerType: string;
         baseUrl: string;
+        apiKey: string;
         model: string;
         isDefault: boolean;
+        createdAt: Date;
+        updatedAt: Date;
     }>;
     remove(req: any, id: string): Promise<{
         success: boolean;

@@ -8,7 +8,7 @@ export class AiProvidersController {
   constructor(private readonly service: AiProvidersService) {}
 
   @Get()
-  list(@Req() req: any) { return this.service.listMasked(req.user.sub); }
+  list(@Req() req: any) { return this.service.list(req.user.sub); }
 
   @Post()
   create(@Req() req: any, @Body() body: { name: string; providerType: string; baseUrl: string; apiKey: string; model: string; isDefault?: boolean }) {

@@ -35,7 +35,7 @@ let AiProvidersService = class AiProvidersService {
             await this.prisma.aiProvider.updateMany({ where: { userId, providerType: data.providerType, isDefault: true }, data: { isDefault: false } });
         }
         const provider = await this.prisma.aiProvider.create({ data: { userId, name: data.name, providerType: data.providerType, baseUrl: data.baseUrl, apiKey: data.apiKey, model: data.model, isDefault: data.isDefault ?? false } });
-        return { ...provider, apiKey: this.maskApiKey(provider.apiKey) };
+        return provider;
     }
     async update(userId, providerId, data) {
         const provider = await this.prisma.aiProvider.findUnique({ where: { id: providerId } });
@@ -47,7 +47,7 @@ let AiProvidersService = class AiProvidersService {
             await this.prisma.aiProvider.updateMany({ where: { userId, providerType: provider.providerType, isDefault: true, id: { not: providerId } }, data: { isDefault: false } });
         }
         const updated = await this.prisma.aiProvider.update({ where: { id: providerId }, data });
-        return { ...updated, apiKey: this.maskApiKey(updated.apiKey) };
+        return updated;
     }
     async remove(userId, providerId) {
         const provider = await this.prisma.aiProvider.findUnique({ where: { id: providerId } });

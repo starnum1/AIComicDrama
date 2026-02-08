@@ -11,27 +11,27 @@ export declare class AiProvidersService {
     constructor(prisma: PrismaService);
     list(userId: string): Promise<{
         id: string;
-        createdAt: Date;
-        updatedAt: Date;
-        name: string;
         userId: string;
+        name: string;
         providerType: string;
         baseUrl: string;
         apiKey: string;
         model: string;
         isDefault: boolean;
+        createdAt: Date;
+        updatedAt: Date;
     }[]>;
     listMasked(userId: string): Promise<{
         apiKey: string;
         id: string;
-        createdAt: Date;
-        updatedAt: Date;
-        name: string;
         userId: string;
+        name: string;
         providerType: string;
         baseUrl: string;
         model: string;
         isDefault: boolean;
+        createdAt: Date;
+        updatedAt: Date;
     }[]>;
     create(userId: string, data: {
         name: string;
@@ -41,16 +41,16 @@ export declare class AiProvidersService {
         model: string;
         isDefault?: boolean;
     }): Promise<{
-        apiKey: string;
         id: string;
-        createdAt: Date;
-        updatedAt: Date;
-        name: string;
         userId: string;
+        name: string;
         providerType: string;
         baseUrl: string;
+        apiKey: string;
         model: string;
         isDefault: boolean;
+        createdAt: Date;
+        updatedAt: Date;
     }>;
     update(userId: string, providerId: string, data: {
         name?: string;
@@ -59,16 +59,16 @@ export declare class AiProvidersService {
         model?: string;
         isDefault?: boolean;
     }): Promise<{
-        apiKey: string;
         id: string;
-        createdAt: Date;
-        updatedAt: Date;
-        name: string;
         userId: string;
+        name: string;
         providerType: string;
         baseUrl: string;
+        apiKey: string;
         model: string;
         isDefault: boolean;
+        createdAt: Date;
+        updatedAt: Date;
     }>;
     remove(userId: string, providerId: string): Promise<{
         success: boolean;

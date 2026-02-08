@@ -51,7 +51,7 @@ function openCreateDialog() {
 
 function openEditDialog(p: AiProvider) {
   dialogMode.value = 'edit'; editingId.value = p.id
-  form.value = { name: p.name, providerType: p.providerType, baseUrl: p.baseUrl, apiKey: '', model: p.model, isDefault: p.isDefault }
+  form.value = { name: p.name, providerType: p.providerType, baseUrl: p.baseUrl, apiKey: p.apiKey, model: p.model, isDefault: p.isDefault }
   testResult.value = null; dialogVisible.value = true
 }
 
@@ -162,7 +162,7 @@ async function testConnection() {
         </div>
         <div class="form-group">
           <label>API Key</label>
-          <input v-model="form.apiKey" type="password" :placeholder="dialogMode === 'edit' ? '留空则不修改' : '输入 API Key'" class="form-input" />
+          <input v-model="form.apiKey" :placeholder="dialogMode === 'edit' ? '留空则不修改' : '输入 API Key'" class="form-input" />
         </div>
         <div class="form-group">
           <label>模型名称</label>
@@ -189,7 +189,8 @@ async function testConnection() {
 </template>
 
 <style scoped>
-.settings-page { min-height: 100vh; padding: 40px; max-width: 960px; margin: 0 auto; }
+.settings-page { height: 100vh; overflow-y: auto; padding: 40px; padding-bottom: 80px; }
+.settings-page > * { max-width: 960px; margin-left: auto; margin-right: auto; }
 .page-header { margin-bottom: 32px; }
 .btn-back { display: inline-flex; align-items: center; gap: 6px; background: transparent; border: 1px solid var(--border); color: var(--text-secondary); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; margin-bottom: 16px; transition: all 0.2s; }
 .btn-back:hover { color: var(--primary-light); border-color: var(--primary); }
