@@ -35,6 +35,24 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private clients = new Map<WebSocket, ClientInfo>();
 
   async handleConnection(client: WebSocket, req: IncomingMessage) {
+    // ========== 关键：先注册消息监听，缓冲认证前到达的消息 ==========
+    const pendingMessages: any[] = [];
+    let authenticated = false;
+
+    client.on('message', (raw: Buffer | string) => {
+      try {
+        const message = JSON.parse(raw.toString());
+        if (authenticated) {
+          this.handleClientMessage(client, message);
+        } else {
+          // 认证完成前，先缓冲消息（如 subscribe）
+          pendingMessages.push(message);
+        }
+      } catch (e) {
+        this.logger.warn(`Invalid message from client: ${raw}`);
+      }
+    });
+
     // ========== JWT 鉴权 ==========
     const params = url.parse(req.url || '', true).query;
     const token = params.token as string;
@@ -58,21 +76,18 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       this.clients.set(client, { ws: client, userId, projectIds: new Set() });
       this.logger.log(`Client connected (user: ${userId}), total: ${this.clients.size}`);
+
+      // ========== 处理认证前缓冲的消息 ==========
+      authenticated = true;
+      for (const msg of pendingMessages) {
+        this.logger.debug(`Processing buffered message: ${JSON.stringify(msg)}`);
+        await this.handleClientMessage(client, msg);
+      }
     } catch (err) {
       this.logger.warn(`WebSocket JWT 验证失败: ${(err as Error).message}`);
       client.close(4003, 'Invalid token');
       return;
     }
-
-    // 监听客户端消息
-    client.on('message', (raw: Buffer | string) => {
-      try {
-        const message = JSON.parse(raw.toString());
-        this.handleClientMessage(client, message);
-      } catch (e) {
-        this.logger.warn(`Invalid message from client: ${raw}`);
-      }
-    });
   }
 
   handleDisconnect(client: WebSocket) {
@@ -86,7 +101,10 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
    */
   private async handleClientMessage(client: WebSocket, message: any) {
     const info = this.clients.get(client);
-    if (!info) return;
+    if (!info) {
+      this.logger.warn(`收到消息但客户端未认证，忽略: ${JSON.stringify(message)}`);
+      return;
+    }
 
     if (message.event === 'subscribe' && message.data?.projectId) {
       // 鉴权：校验项目归属
@@ -94,6 +112,7 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         where: { id: message.data.projectId, userId: info.userId },
       });
       if (!project) {
+        this.logger.warn(`用户 ${info.userId} 无权订阅项目 ${message.data.projectId}`);
         client.send(
           JSON.stringify({
             event: 'error',
@@ -103,8 +122,10 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return;
       }
       info.projectIds.add(message.data.projectId);
+      this.logger.log(`用户 ${info.userId} 已订阅项目 ${message.data.projectId}`);
     } else if (message.event === 'unsubscribe' && message.data?.projectId) {
       info.projectIds.delete(message.data.projectId);
+      this.logger.log(`用户 ${info.userId} 已取消订阅项目 ${message.data.projectId}`);
     }
   }
 
@@ -114,10 +135,27 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
    */
   emitToProject(projectId: string, event: WsServerEvent['event'], data: any) {
     const message = JSON.stringify({ event, data });
+    let sentCount = 0;
 
     for (const [, info] of this.clients) {
       if (info.projectIds.has(projectId) && info.ws.readyState === WebSocket.OPEN) {
         info.ws.send(message);
+        sentCount++;
+      }
+    }
+
+    this.logger.log(
+      `emitToProject [${event}] → project ${projectId.slice(0, 8)}... ` +
+      `(sent to ${sentCount}/${this.clients.size} clients)`,
+    );
+
+    if (sentCount === 0 && this.clients.size > 0) {
+      // 调试：列出所有客户端订阅的项目
+      for (const [, info] of this.clients) {
+        this.logger.warn(
+          `  Client (user ${info.userId}) subscribed to: [${[...info.projectIds].join(', ')}], ` +
+          `readyState: ${info.ws.readyState}`,
+        );
       }
     }
   }

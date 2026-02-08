@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
   BadRequestException,
@@ -9,6 +10,8 @@ import { PipelineOrchestrator } from '../pipeline/pipeline.orchestrator';
 
 @Injectable()
 export class ProjectsService {
+  private readonly logger = new Logger(ProjectsService.name);
+
   constructor(
     private prisma: PrismaService,
     private orchestrator: PipelineOrchestrator,
@@ -190,7 +193,9 @@ export class ProjectsService {
       throw new BadRequestException('请先上传小说文本');
     }
 
+    this.logger.log(`Starting pipeline for project ${projectId}`);
     await this.orchestrator.startFrom(projectId, 'analysis');
+    this.logger.log(`Pipeline task queued for project ${projectId}`);
     return { success: true, message: '流水线已启动' };
   }
 

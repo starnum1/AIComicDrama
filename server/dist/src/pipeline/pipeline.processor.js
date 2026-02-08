@@ -61,15 +61,30 @@ let PipelineProcessor = PipelineProcessor_1 = class PipelineProcessor extends bu
             await this.orchestrator.scheduleNextStep(projectId, step);
         }
         catch (error) {
-            this.logger.error(`Failed: Project ${projectId} - Step ${step}: ${error.message}`);
-            if (job.attemptsMade + 1 >= (job.opts?.attempts ?? 3)) {
+            const errorMsg = error.message;
+            const maxAttempts = job.opts?.attempts ?? 1;
+            const isLastAttempt = job.attemptsMade + 1 >= maxAttempts;
+            this.logger.error(`Failed: Project ${projectId} - Step ${step} ` +
+                `(attempt ${job.attemptsMade + 1}/${maxAttempts}): ${errorMsg}`);
+            if (isLastAttempt) {
+                this.logger.error(`Final failure for Project ${projectId} - Step ${step}`);
                 await this.prisma.project.update({
                     where: { id: projectId },
                     data: { status: 'failed', currentStep: step },
                 });
                 this.ws.emitToProject(projectId, 'step:failed', {
                     step,
-                    error: error.message,
+                    error: errorMsg,
+                });
+            }
+            else {
+                this.logger.warn(`Will retry Project ${projectId} - Step ${step} ` +
+                    `(${maxAttempts - job.attemptsMade - 1} retries left)`);
+                this.ws.emitToProject(projectId, 'progress:detail', {
+                    step,
+                    message: `步骤失败，正在重试 (${job.attemptsMade + 1}/${maxAttempts})...`,
+                    completed: 0,
+                    total: 0,
                 });
             }
             throw error;

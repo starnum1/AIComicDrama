@@ -28,11 +28,20 @@ let PipelineOrchestrator = PipelineOrchestrator_1 = class PipelineOrchestrator {
         this.logger = new common_1.Logger(PipelineOrchestrator_1.name);
     }
     async startFrom(projectId, fromStep) {
+        const existingJob = await this.pipelineQueue.getJob(`${projectId}-${fromStep}`);
+        if (existingJob) {
+            await existingJob.remove().catch(() => { });
+        }
         await this.pipelineQueue.add('execute-step', {
             projectId,
             step: fromStep,
         }, {
-            jobId: `${projectId}-${fromStep}`,
+            jobId: `${projectId}-${fromStep}-${Date.now()}`,
+            attempts: 3,
+            backoff: {
+                type: 'exponential',
+                delay: 5000,
+            },
         });
         this.logger.log(`Project ${projectId} - 已投递任务: ${fromStep}`);
     }

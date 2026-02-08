@@ -1,4 +1,5 @@
 import { ref, onUnmounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import { useProjectStore } from '@/stores/project'
 import type { WsServerEvent, WsClientEvent } from '@aicomic/shared'
 
@@ -64,15 +65,23 @@ export function useWebSocket() {
       // ===== 步骤级事件 =====
       case 'step:start':
         projectStore.setCurrentStep(message.data.step)
+        ElMessage.info(`正在执行: ${message.data.step}`)
         break
       case 'step:complete':
         projectStore.markStepComplete(message.data.step)
+        ElMessage.success(`步骤完成: ${message.data.step}`)
         break
       case 'step:need_review':
         projectStore.setNeedReview(message.data.step)
+        ElMessage.warning('资产已生成，请审核后继续')
         break
       case 'step:failed':
         projectStore.setStepFailed(message.data.step, message.data.error)
+        ElMessage.error({
+          message: `步骤「${message.data.step}」失败: ${message.data.error}`,
+          duration: 10000,
+          showClose: true,
+        })
         break
 
       // ===== 细粒度进度事件 =====

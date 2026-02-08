@@ -3,6 +3,7 @@ import { PipelineOrchestrator } from '../pipeline/pipeline.orchestrator';
 export declare class ProjectsService {
     private prisma;
     private orchestrator;
+    private readonly logger;
     constructor(prisma: PrismaService, orchestrator: PipelineOrchestrator);
     listProjects(userId: string): Promise<{
         id: string;

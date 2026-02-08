@@ -24,6 +24,12 @@ export class PipelineOrchestrator {
    * 从指定步骤开始执行流水线（投递到队列，立即返回）
    */
   async startFrom(projectId: string, fromStep: PipelineStep): Promise<void> {
+    // 如果已经有同名 jobId 的任务，先移除（支持重跑）
+    const existingJob = await this.pipelineQueue.getJob(`${projectId}-${fromStep}`);
+    if (existingJob) {
+      await existingJob.remove().catch(() => {});
+    }
+
     await this.pipelineQueue.add(
       'execute-step',
       {
@@ -31,7 +37,12 @@ export class PipelineOrchestrator {
         step: fromStep,
       },
       {
-        jobId: `${projectId}-${fromStep}`,
+        jobId: `${projectId}-${fromStep}-${Date.now()}`,
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 5000,
+        },
       },
     );
 

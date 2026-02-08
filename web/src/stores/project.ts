@@ -80,6 +80,7 @@ export const useProjectStore = defineStore('project', () => {
   function setStepFailed(step: string, errorMsg: string) {
     failedStep.value = { step, error: errorMsg }
     projectStatus.value = 'failed'
+    error.value = `步骤「${step}」失败: ${errorMsg}`
   }
 
   function updateProgress(info: ProgressInfo) {

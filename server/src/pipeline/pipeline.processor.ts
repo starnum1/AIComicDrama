@@ -70,24 +70,41 @@ export class PipelineProcessor extends WorkerHost {
       // 自动投递下一步骤
       await this.orchestrator.scheduleNextStep(projectId, step);
     } catch (error) {
+      const errorMsg = (error as Error).message;
+      const maxAttempts = job.opts?.attempts ?? 1;
+      const isLastAttempt = job.attemptsMade + 1 >= maxAttempts;
+
       this.logger.error(
-        `Failed: Project ${projectId} - Step ${step}: ${(error as Error).message}`,
+        `Failed: Project ${projectId} - Step ${step} ` +
+        `(attempt ${job.attemptsMade + 1}/${maxAttempts}): ${errorMsg}`,
       );
 
-      // BullMQ 会根据 attempts 配置自动重试
-      // 只有在最后一次重试也失败时，才标记项目为 failed
-      if (job.attemptsMade + 1 >= (job.opts?.attempts ?? 3)) {
+      if (isLastAttempt) {
+        // 最终失败：更新数据库状态 + 通知前端
+        this.logger.error(`Final failure for Project ${projectId} - Step ${step}`);
         await this.prisma.project.update({
           where: { id: projectId },
           data: { status: 'failed', currentStep: step },
         });
         this.ws.emitToProject(projectId, 'step:failed', {
           step,
-          error: (error as Error).message,
+          error: errorMsg,
+        });
+      } else {
+        // 中间重试：只通知前端正在重试（不标记为失败）
+        this.logger.warn(
+          `Will retry Project ${projectId} - Step ${step} ` +
+          `(${maxAttempts - job.attemptsMade - 1} retries left)`,
+        );
+        this.ws.emitToProject(projectId, 'progress:detail', {
+          step,
+          message: `步骤失败，正在重试 (${job.attemptsMade + 1}/${maxAttempts})...`,
+          completed: 0,
+          total: 0,
         });
       }
 
-      throw error;
+      throw error; // 让 BullMQ 处理重试
     }
   }
 

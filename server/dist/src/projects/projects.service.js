@@ -8,15 +8,17 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var ProjectsService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ProjectsService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../common/prisma.service");
 const pipeline_orchestrator_1 = require("../pipeline/pipeline.orchestrator");
-let ProjectsService = class ProjectsService {
+let ProjectsService = ProjectsService_1 = class ProjectsService {
     constructor(prisma, orchestrator) {
         this.prisma = prisma;
         this.orchestrator = orchestrator;
+        this.logger = new common_1.Logger(ProjectsService_1.name);
     }
     async listProjects(userId) {
         return this.prisma.project.findMany({
@@ -157,7 +159,9 @@ let ProjectsService = class ProjectsService {
         if (!project.novel) {
             throw new common_1.BadRequestException('请先上传小说文本');
         }
+        this.logger.log(`Starting pipeline for project ${projectId}`);
         await this.orchestrator.startFrom(projectId, 'analysis');
+        this.logger.log(`Pipeline task queued for project ${projectId}`);
         return { success: true, message: '流水线已启动' };
     }
     async confirmAssets(userId, projectId) {
@@ -358,7 +362,7 @@ let ProjectsService = class ProjectsService {
     }
 };
 exports.ProjectsService = ProjectsService;
-exports.ProjectsService = ProjectsService = __decorate([
+exports.ProjectsService = ProjectsService = ProjectsService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
         pipeline_orchestrator_1.PipelineOrchestrator])

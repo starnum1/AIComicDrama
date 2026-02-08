@@ -58,6 +58,22 @@ let WsGateway = WsGateway_1 = class WsGateway {
         this.clients = new Map();
     }
     async handleConnection(client, req) {
+        const pendingMessages = [];
+        let authenticated = false;
+        client.on('message', (raw) => {
+            try {
+                const message = JSON.parse(raw.toString());
+                if (authenticated) {
+                    this.handleClientMessage(client, message);
+                }
+                else {
+                    pendingMessages.push(message);
+                }
+            }
+            catch (e) {
+                this.logger.warn(`Invalid message from client: ${raw}`);
+            }
+        });
         const params = url.parse(req.url || '', true).query;
         const token = params.token;
         if (!token) {
@@ -75,21 +91,17 @@ let WsGateway = WsGateway_1 = class WsGateway {
             }
             this.clients.set(client, { ws: client, userId, projectIds: new Set() });
             this.logger.log(`Client connected (user: ${userId}), total: ${this.clients.size}`);
+            authenticated = true;
+            for (const msg of pendingMessages) {
+                this.logger.debug(`Processing buffered message: ${JSON.stringify(msg)}`);
+                await this.handleClientMessage(client, msg);
+            }
         }
         catch (err) {
             this.logger.warn(`WebSocket JWT 验证失败: ${err.message}`);
             client.close(4003, 'Invalid token');
             return;
         }
-        client.on('message', (raw) => {
-            try {
-                const message = JSON.parse(raw.toString());
-                this.handleClientMessage(client, message);
-            }
-            catch (e) {
-                this.logger.warn(`Invalid message from client: ${raw}`);
-            }
-        });
     }
     handleDisconnect(client) {
         this.clients.delete(client);
@@ -97,13 +109,16 @@ let WsGateway = WsGateway_1 = class WsGateway {
     }
     async handleClientMessage(client, message) {
         const info = this.clients.get(client);
-        if (!info)
+        if (!info) {
+            this.logger.warn(`收到消息但客户端未认证，忽略: ${JSON.stringify(message)}`);
             return;
+        }
         if (message.event === 'subscribe' && message.data?.projectId) {
             const project = await this.prisma.project.findFirst({
                 where: { id: message.data.projectId, userId: info.userId },
             });
             if (!project) {
+                this.logger.warn(`用户 ${info.userId} 无权订阅项目 ${message.data.projectId}`);
                 client.send(JSON.stringify({
                     event: 'error',
                     data: { message: '无权访问该项目' },
@@ -111,16 +126,28 @@ let WsGateway = WsGateway_1 = class WsGateway {
                 return;
             }
             info.projectIds.add(message.data.projectId);
+            this.logger.log(`用户 ${info.userId} 已订阅项目 ${message.data.projectId}`);
         }
         else if (message.event === 'unsubscribe' && message.data?.projectId) {
             info.projectIds.delete(message.data.projectId);
+            this.logger.log(`用户 ${info.userId} 已取消订阅项目 ${message.data.projectId}`);
         }
     }
     emitToProject(projectId, event, data) {
         const message = JSON.stringify({ event, data });
+        let sentCount = 0;
         for (const [, info] of this.clients) {
             if (info.projectIds.has(projectId) && info.ws.readyState === ws_1.WebSocket.OPEN) {
                 info.ws.send(message);
+                sentCount++;
+            }
+        }
+        this.logger.log(`emitToProject [${event}] → project ${projectId.slice(0, 8)}... ` +
+            `(sent to ${sentCount}/${this.clients.size} clients)`);
+        if (sentCount === 0 && this.clients.size > 0) {
+            for (const [, info] of this.clients) {
+                this.logger.warn(`  Client (user ${info.userId}) subscribed to: [${[...info.projectIds].join(', ')}], ` +
+                    `readyState: ${info.ws.readyState}`);
             }
         }
     }
