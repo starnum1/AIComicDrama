@@ -74,7 +74,7 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], AiProvidersController.prototype, "testConnection", null);
 exports.AiProvidersController = AiProvidersController = __decorate([
-    (0, common_1.Controller)('api/ai-providers'),
+    (0, common_1.Controller)('ai-providers'),
     (0, common_1.UseGuards)(auth_guard_1.AuthGuard),
     __metadata("design:paramtypes", [ai_providers_service_1.AiProvidersService])
 ], AiProvidersController);

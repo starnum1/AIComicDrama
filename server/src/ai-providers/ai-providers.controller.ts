@@ -1,8 +1,8 @@
-﻿import { Controller, Get, Post, Put, Delete, Body, Param, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
 import { AiProvidersService } from './ai-providers.service';
 
-@Controller('api/ai-providers')
+@Controller('ai-providers')
 @UseGuards(AuthGuard)
 export class AiProvidersController {
   constructor(private readonly service: AiProvidersService) {}
