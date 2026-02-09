@@ -118,6 +118,9 @@ function getContinuityColor(strength: string) {
                 fit="cover"
                 class="shot-thumb"
                 :preview-src-list="shot.images.map((i) => i.imageUrl)"
+                :preview-teleported="true"
+                :hide-on-click-modal="true"
+                :z-index="3000"
               />
             </div>
 

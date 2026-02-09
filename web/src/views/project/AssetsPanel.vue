@@ -230,8 +230,15 @@ function getSceneImageForVariant(scene: SceneData, variant: string): SceneImage 
             <div class="card-images">
               <div v-if="char.sheets.length > 0" class="image-list">
                 <div v-for="sheet in char.sheets" :key="sheet.id" class="image-item">
-                  <el-image :src="sheet.imageUrl" fit="contain" class="asset-thumb"
-                    :preview-src-list="[sheet.imageUrl]" />
+                  <el-image
+                    :src="sheet.imageUrl"
+                    fit="contain"
+                    class="asset-thumb"
+                    :preview-src-list="[sheet.imageUrl]"
+                    :preview-teleported="true"
+                    :hide-on-click-modal="true"
+                    :z-index="3000"
+                  />
                   <div class="image-actions">
                     <button class="btn-icon btn-regen" title="重新生成"
                       :disabled="generatingIds.has(char.id)"
@@ -285,6 +292,9 @@ function getSceneImageForVariant(scene: SceneData, variant: string): SceneImage 
                       fit="cover"
                       class="scene-thumb"
                       :preview-src-list="[getSceneImageForVariant(scene, variant)!.imageUrl]"
+                      :preview-teleported="true"
+                      :hide-on-click-modal="true"
+                      :z-index="3000"
                     />
                     <div class="image-actions">
                       <button class="btn-icon btn-regen" title="重新生成"
