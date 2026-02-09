@@ -8,6 +8,7 @@ export interface ImageGenRequest {
   referenceStrength?: number;
   width?: number;
   height?: number;
+  size?: string;
   style?: string;
 }
 
@@ -28,6 +29,8 @@ export class ImageGenService {
   async generate(request: ImageGenRequest, providerConfig?: AiProviderConfig): Promise<ImageGenResponse> {
     const config = this.resolveConfig(providerConfig);
     const { baseUrl, apiKey, model } = config;
+    const isDoubao = this.isDoubaoProvider(baseUrl, model);
+    const size = request.size ?? this.resolveSize(request.width, request.height, isDoubao);
 
     const response = await fetch(baseUrl + '/images/generations', {
       method: 'POST',
@@ -38,11 +41,17 @@ export class ImageGenService {
       body: JSON.stringify({
         model,
         prompt: request.prompt,
-        negative_prompt: request.negativePrompt,
-        size: (request.width || 1920) + 'x' + (request.height || 1080),
+        ...(request.negativePrompt && { negative_prompt: request.negativePrompt }),
+        size,
         ...(request.referenceImageUrl && {
           reference_image: request.referenceImageUrl,
           reference_strength: request.referenceStrength || 0.6,
+        }),
+        ...(isDoubao && {
+          sequential_image_generation: 'disabled',
+          response_format: 'url',
+          stream: false,
+          watermark: true,
         }),
       }),
     });
@@ -64,5 +73,25 @@ export class ImageGenService {
       imageUrl: data.data[0].url,
       cost: 0,
     };
+  }
+
+  private isDoubaoProvider(baseUrl: string, model: string): boolean {
+    if (model?.startsWith('doubao-')) return true;
+    return baseUrl.includes('ark.cn-beijing.volces.com');
+  }
+
+  private resolveSize(width?: number, height?: number, isDoubao: boolean = false): string {
+    const w = width || 1920;
+    const h = height || 1080;
+    if (isDoubao) {
+      const key = `${w}x${h}`;
+      const map: Record<string, string> = {
+        '1024x1024': '1K',
+        '1920x1080': '2K',
+        '2048x2048': '2K',
+      };
+      return map[key] || key;
+    }
+    return `${w}x${h}`;
   }
 }

@@ -79,16 +79,48 @@ export class AiProvidersService {
 
   async testConnection(_userId: string, data: { baseUrl: string; apiKey: string; model: string; providerType: string }) {
     try {
-      if (data.providerType === 'llm') {
-        const response = await fetch(data.baseUrl + '/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + data.apiKey }, body: JSON.stringify({ model: data.model, messages: [{ role: 'user', content: 'Hi' }], max_tokens: 5 }) });
-        const result = await response.json();
-        if (!response.ok) return { success: false, error: result.error?.message || 'HTTP ' + response.status };
-        return { success: true, message: 'Connection successful' };
+      const { baseUrl, apiKey, model, providerType } = data;
+      const authHeader = { Authorization: 'Bearer ' + apiKey };
+
+      // 检测常见的 baseUrl 误填（把完整接口路径当作 baseUrl）
+      const suspiciousSuffixes = ['/chat/completions', '/images/generations', '/video/generations'];
+      for (const suffix of suspiciousSuffixes) {
+        if (baseUrl.endsWith(suffix)) {
+          return { success: false, error: `Base URL 不应包含 ${suffix}，请只填写基础地址，例如 https://api.openai.com/v1` };
+        }
       }
-      const response = await fetch(data.baseUrl + '/models', { headers: { Authorization: 'Bearer ' + data.apiKey } });
-      if (!response.ok) return { success: false, error: 'HTTP ' + response.status };
-      return { success: true, message: 'Connection successful' };
-    } catch (error) { return { success: false, error: (error as Error).message }; }
+
+      if (providerType === 'llm') {
+        const response = await fetch(baseUrl + '/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeader },
+          body: JSON.stringify({ model, messages: [{ role: 'user', content: 'Hi' }], max_tokens: 5 }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (response.status === 401 || response.status === 403) {
+          return { success: false, error: (result as any).error?.message || 'API Key 无效或无权限 (HTTP ' + response.status + ')' };
+        }
+        if (!response.ok) return { success: false, error: (result as any).error?.message || 'HTTP ' + response.status };
+        return { success: true, message: '连接成功' };
+      }
+
+      if (providerType === 'image_gen' || providerType === 'video_gen') {
+        const response = await fetch(baseUrl + '/models', { headers: authHeader });
+        if (response.status === 401 || response.status === 403) {
+          const result = await response.json().catch(() => ({}));
+          return { success: false, error: (result as any).error?.message || 'API Key 无效或无权限 (HTTP ' + response.status + ')' };
+        }
+        if (response.status === 404) {
+          return { success: false, error: 'Base URL 不正确 (HTTP 404)。请只填写基础地址，例如 https://api.openai.com/v1，不要包含具体的 API 路径。' };
+        }
+        if (!response.ok) return { success: false, error: 'HTTP ' + response.status };
+        return { success: true, message: '连接成功' };
+      }
+
+      return { success: false, error: '未知的 Provider 类型: ' + providerType };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
   }
 
   private maskApiKey(key: string): string {

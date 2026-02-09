@@ -24,6 +24,26 @@ export class StorageService implements OnModuleInit {
     if (!exists) {
       await this.client.makeBucket(this.bucket);
     }
+    await this.ensurePublicReadPolicy();
+  }
+
+  private async ensurePublicReadPolicy() {
+    const policy = JSON.stringify({
+      Version: '2012-10-17',
+      Statement: [
+        {
+          Effect: 'Allow',
+          Principal: { AWS: ['*'] },
+          Action: ['s3:GetObject'],
+          Resource: [`arn:aws:s3:::${this.bucket}/*`],
+        },
+      ],
+    });
+    try {
+      await this.client.setBucketPolicy(this.bucket, policy);
+    } catch (error) {
+      // 不阻断服务启动：本地或无权限时忽略
+    }
   }
 
   /**
